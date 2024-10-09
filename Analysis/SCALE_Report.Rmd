@@ -1,0 +1,366 @@
+---
+title: "SCALE Report"
+author: "Montana"
+date: "2024-02-09"
+output: html_document
+---
+
+```{r, echo = F, message = F, warning = F}
+
+setwd("C:/Users/monta/OneDrive - Airey Family/GitHub/AFRP/MA2276_Code/SCALE")
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(gridExtra)
+`%nin%` = Negate(`%in%`)
+## Month setup
+month_bin = c(0,7,12,15)
+## Data setup
+s.d = read.csv(file = "SCALE_MTS_2023.csv") %>% separate(YSAMP, into = c("GEAR", "WATER", "YEAR", "YSAMP_N"), remove = F)  %>% 
+  mutate(FAMILY = tolower(FAMILY)) %>%
+  mutate(ORDER..OR.ABOVE. = tolower(ORDER..OR.ABOVE.)) %>%## Scale Data 
+  filter(ORDER..OR.ABOVE. != "") %>%
+  mutate(FAMILY = str_replace(FAMILY, " ", "")) %>%
+  mutate(ORDER..OR.ABOVE. = str_replace(ORDER..OR.ABOVE., " ", ""))
+
+sample = read.csv(file = "SCALE_sample.csv") %>%
+  mutate(YEAR = as.character(YEAR))
+
+## How many lakes are each common family found in 
+common = s.d %>% 
+  filter(ORDER..OR.ABOVE. != "") %>%
+  filter(FAMILY != "unidentified") %>% 
+  filter(FAMILY != "terrestrial") %>%
+  filter(FAMILY != "") %>%
+  filter(FAMILY != " ") %>%
+  filter(FAMILY != "degraded") %>%
+  group_by(WATER, ORDER..OR.ABOVE., FAMILY) %>% 
+  summarize(sum = sum(TOTAL_N)) %>% 
+  mutate(FAMILY = tolower(FAMILY)) %>%
+  mutate(ORDER..OR.ABOVE. = tolower(ORDER..OR.ABOVE.)) %>% 
+  filter(ORDER..OR.ABOVE. != "") %>%
+  ungroup() %>%
+  group_by(ORDER..OR.ABOVE., FAMILY) %>%
+  summarize(total_lakes = n()) 
+
+
+full = left_join(s.d, sample, by = c("YSAMP"))  %>%
+  mutate(MONTH = .bincode(MONTH, month_bin)) %>%
+  mutate(MONTH = as.character(MONTH)) %>%
+  mutate(MONTH = str_replace(MONTH, "2", "FALL")) %>%
+  mutate(MONTH = str_replace(MONTH, "1", "SPRING")) %>%
+  select(MONTH, YSAMP, GEAR.x,SITE_N, WATER.x, YEAR.x, YSAMP_N, MTS_N, GROUP, ORDER..OR.ABOVE., FAMILY, GENUS, SPECIES, TOTAL_N) %>%
+  rename("GEAR" = GEAR.x, "WATER" = WATER.x, "YEAR" = YEAR.x)
+
+save(file = "FullData.RData", full)
+
+common_month = full %>% 
+  filter(ORDER..OR.ABOVE. != "") %>%
+  filter(FAMILY != "unidentified") %>% 
+  filter(FAMILY != "terrestrial") %>%
+  filter(FAMILY != "") %>%
+  filter(FAMILY != " ") %>%
+  filter(FAMILY != "degraded") %>%
+  group_by(WATER,ORDER..OR.ABOVE., FAMILY, MONTH, SITE_N) %>% 
+  summarize(sum = sum(TOTAL_N)) %>% 
+  mutate(FAMILY = tolower(FAMILY)) %>%
+  mutate(ORDER..OR.ABOVE. = tolower(ORDER..OR.ABOVE.)) %>% 
+  filter(ORDER..OR.ABOVE. != "")
+```
+
+#### Distribution of macroinvertebrate families across lakes
+
+Libellulids are found across 11 of 12 lakes
+
+```{r,echo = F, message = F, warning = F}
+
+s.d %>% 
+  left_join(common) %>%
+  
+  group_by(WATER, ORDER..OR.ABOVE., FAMILY, total_lakes) %>% 
+  summarize(sum = sum(TOTAL_N)) %>% 
+  ungroup() %>% 
+  mutate(FAMILY = tolower(FAMILY)) %>%
+  mutate(ORDER..OR.ABOVE. = tolower(ORDER..OR.ABOVE.)) %>% 
+  filter(ORDER..OR.ABOVE. != "") %>% 
+  arrange(ORDER..OR.ABOVE., ORDER..OR.ABOVE.)  %>%
+  filter(total_lakes != "NA")%>% 
+  
+  ggplot(aes(y = FAMILY, x = sum, fill = WATER)) + 
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  theme(axis.text.x = element_text(angle = 90)) + 
+  facet_wrap(~total_lakes, scales = "free")
+
+
+
+```
+
+#### Seasonal Differences within lake
+
+Only 8 lakes were sampled twice. The following graph shows all taxa that were sampled during both seasons at each lake.
+```{r,echo = F, message = F, warning = F}
+
+
+count_month = common_month %>%
+  filter(MONTH != "NA") %>%
+  unique() %>%
+  mutate(sum = as.numeric(sum)) %>%
+  ungroup() %>%
+  group_by(WATER, ORDER..OR.ABOVE., MONTH, FAMILY) %>%
+  summarize(total_inverts = sum(sum)) %>%
+  pivot_wider(names_from = MONTH, values_from = total_inverts) %>%
+  filter(is.na(FALL) != T & is.na(SPRING)!= T) %>%
+  ungroup() %>%
+  group_by(FAMILY) %>%
+  summarize(total_lakes = n())
+
+common_month %>%
+  filter(MONTH != "NA") %>%
+  unique() %>%
+  mutate(sum = as.numeric(sum)) %>%
+  ungroup() %>%
+  group_by(WATER, ORDER..OR.ABOVE., MONTH, FAMILY) %>%
+  summarize(total_inverts = sum(sum)) %>%
+  pivot_wider(names_from = MONTH, values_from = total_inverts) %>%
+  filter(is.na(FALL) != T & is.na(SPRING)!= T) %>%
+  left_join(count_month) %>%
+  ggplot(aes(x = reorder(FAMILY, -total_lakes), fill = WATER)) + 
+  geom_bar() + 
+  theme_minimal() + 
+  labs(fill = "Lake") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = .5)) + 
+  ylab("Number of Lakes") + 
+  xlab("Family")
+```
+
+#### Site differences within lakes 
+
+We sampled two lakes (Dart and Moss Lake) at high site (N = 4) intensity in the 2023 spring
+
+
+```{r,echo = F, message = F, warning = F}
+
+msl = full %>% filter(WATER %in% c("MSL"), 
+                MONTH == "SPRING") %>%
+  group_by(SITE_N, WATER, FAMILY) %>%
+  summarize(total_interts = sum(TOTAL_N)) %>%
+  filter(FAMILY != "degraded") %>%
+  ungroup() %>%
+  group_by(FAMILY) %>%
+  summarize(sum_sites = n()) %>%
+  ggplot(aes(x = reorder(FAMILY, -sum_sites), y = sum_sites)) + 
+  geom_bar(stat = "identity") +
+  ylab("Total Sites Present") + 
+  xlab("Family") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = .5)) + 
+  ggtitle("Moss Lake")
+
+
+dtl = full %>% filter(WATER %in% c("DTL"), 
+                MONTH == "SPRING") %>%
+  group_by(SITE_N, WATER, FAMILY) %>%
+  summarize(total_interts = sum(TOTAL_N)) %>%
+  filter(FAMILY != "degraded") %>%
+  ungroup() %>%
+  group_by(FAMILY) %>%
+  summarize(sum_sites = n()) %>%
+  ggplot(aes(x = reorder(FAMILY, -sum_sites), y = sum_sites)) + 
+  geom_bar(stat = "identity") +
+  ylab("Total Sites Present") + 
+  xlab("Family") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = .5)) + 
+  ggtitle("Dart Lake")
+
+grid.arrange(msl, dtl, ncol = 2)
+
+
+```
+
+#### The other lakes were not intensively sampled across space, but were sampled at two time points
+
+```{r, out.height="200%", out.width="100%",echo = F, message = F, warning = F}
+
+
+full %>% filter(WATER %nin% c("DTL","MSL", "COM", "LML","GNL","ETL"), MONTH != "NA") %>%
+  group_by(SITE_N, WATER, MONTH,FAMILY) %>%
+  summarize(total_interts = sum(TOTAL_N)) %>%
+  filter(FAMILY != "degraded") %>%
+  ungroup() %>%
+  group_by(WATER,FAMILY, MONTH) %>%
+  summarize(sum_sites = n()) %>%
+  ggplot(aes(x = FAMILY, y = sum_sites, fill = MONTH)) +
+  geom_bar(stat = 'identity') +
+  facet_wrap(~WATER, scales = "free") +  ylab("Total Sites Present") + 
+  xlab("Family") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = .5, size = 6)) + 
+  ggtitle("Dart Lake")
+
+```
+
+##### Short-list of taxa that are found seasonally and are common across both regional and within-lake spatial scales
+
+The below taxa are found at 100% of the sites within their lakes and are observed in both spring + fall sampling in 50% of the seasonally sampled lakes.
+
+```{r,echo = F, message = F, warning = F}
+
+num_sites_sampled = full %>% select(WATER, MONTH, SITE_N) %>% unique() %>%
+  group_by(WATER, MONTH) %>%
+  summarize(total.sites = n())
+
+full %>% 
+  left_join(num_sites_sampled) %>%
+  group_by(SITE_N, WATER, MONTH,FAMILY, total.sites) %>%
+  summarize(total_interts = sum(TOTAL_N)) %>%
+  filter(FAMILY != "degraded") %>%
+  ungroup() %>%
+  group_by(WATER,FAMILY, MONTH, total.sites) %>%
+  summarize(sum_sites = n()) %>%
+  mutate(percent_sites = round(sum_sites / total.sites * 100, digits = 0)) %>%
+  filter(percent_sites ==100) %>% 
+  filter(FAMILY %in% (count_month %>% filter(total_lakes > 4))$FAMILY) %>%
+  ungroup() %>%
+  select(FAMILY) %>% unique()
+
+
+```
+
+
+##### Occurance of mollusk family across sampled lakes
+
+```{r,echo = F, message = F, warning = F}
+
+mullusks = full %>% filter(ORDER..OR.ABOVE. %in% c("bivalvia","gastropoda")) 
+
+mullusks %>% select(FAMILY, WATER) %>% group_by(FAMILY) %>% 
+  unique() %>%
+  summarize(Total_Lakes = n()) %>%
+  mutate(Percent_Lakes = round(Total_Lakes / 12*100), digits = 0) %>% 
+  select(FAMILY, Percent_Lakes)
+
+
+snails = mullusks %>% filter(FAMILY %in% c("planorbiae", "lymnaeidae", "viviparidae", "bithyniidae"))
+
+clams = mullusks %>% filter(FAMILY %in% c("unioniae", "spaeriidae"))
+
+```
+
+##### Occurance of mollusk order across sampled lakes
+
+```{r,echo = F, message = F, warning = F}
+
+## Total number of lakes observed in
+
+mullusks %>% select(ORDER..OR.ABOVE., WATER) %>% unique() %>% group_by(ORDER..OR.ABOVE.) %>%
+  summarize(Percent_Lakes = round(n() / 12 * 100, digits = 0))
+```
+
+
+```{r}
+
+compiled = read.csv("SCALE_compiled.csv") %>% 
+  filter(MONTH != "NA") %>%
+  separate(YSAMP, into = c("WATER", "MONTH","YEAR")) %>%
+  mutate(MONTH = as.numeric(MONTH)) %>%
+  mutate(MONTH = case_when(MONTH < 7 ~ "SPRING", MONTH > 7 ~ "FALL" )) %>%
+  rename(SAMPLE = SAMP_N) %>%
+  select(WATER, MONTH,SAMPLE, GROUP)
+
+compiled
+
+x = full %>% select(MONTH, WATER,MTS_N) %>% 
+  filter(MTS_N %nin% c("NULL.DEGRADED", "NULL")) %>%
+  rename(SAMPLE = MTS_N)%>%
+  mutate(GROUP = "INVERT") %>%
+  rbind(compiled) %>%
+  group_by(MONTH, WATER, GROUP) %>%
+  summarize(count = n()) %>%
+  pivot_wider(names_from = GROUP, values_from = count) %>%
+  arrange(WATER) %>%
+  filter(INVERT != "NA") 
+
+write.csv(x, "sample_log.csv")
+ 
+dev.off()
+
+
+full %>%
+  group_by(MONTH) %>%
+  summarize(count = n() )
+
+
+
+
+```
+
+## Sagamore
+```{r}
+
+s.d %>% filter(WATER == "SEL") %>%
+  select(ORDER..OR.ABOVE., FAMILY, GENUS) %>%
+  unique()
+  
+```
+## Choosing HS samples
+```{r}
+
+hs = read.csv("HS_samples.csv")
+library(dplyr)
+
+hs_inverts = hs %>% filter(GROUP == "MACROINVERTEBRATES", 
+              LOADED.FOR.ISOTOPE..Y.N. == "Y",
+              LEFTOVER.SAMPLE..0.5. > 2) %>%
+  rename(MTS_N = SAMP_N)
+
+invert_id = read.csv("SCALE_MTS_2023.csv") %>% select(YSAMP, MTS_N, ORDER..OR.ABOVE., FAMILY) %>%
+  filter(MTS_N != "")
+
+hs_inverts %>% left_join(invert_id)
+
+scale_sample = read.csv("SCALE_sample.csv")
+
+dat = left_join(hs_inverts, scale_sample) %>%left_join(invert_id)
+
+sum = dat %>% group_by(WATER, MONTH, ORDER..OR.ABOVE.) %>%
+  summarize(total = n()) %>%
+  filter(total > 3)
+sum
+
+full = dat %>%  group_by(WATER, MONTH, ORDER..OR.ABOVE.) %>%
+      mutate(total = n()) 
+
+
+full = full %>% 
+  select(YSAMP, MTS_N, GROUP, LEFTOVER.SAMPLE..0.5., WATER, MONTH, ORDER..OR.ABOVE., FAMILY ) 
+
+write.csv(full,"HS_selection.csv")
+
+
+sum$WATER %>% unique() %>% length()
+```
+
+```{r}
+library(tidyverse)
+library(tidyr)
+fish = hs %>% filter(GROUP == "FISH", 
+              LOADED.FOR.ISOTOPE..Y.N. == "Y",
+              LEFTOVER.SAMPLE..0.5. > 3) %>%
+  rename(MTS_N = SAMP_N)
+
+
+fish_id = read.csv("SCALE_MTS_2023.csv") %>% select(YSAMP, MTS_N, ORDER..OR.ABOVE., FAMILY) %>%
+  filter(MTS_N != "")
+
+
+fish_selection = fish %>% separate(YSAMP, into = c("WATER", "MONTH","YEAR")) %>%
+  group_by(MONTH, WATER) %>%
+  filter(LEFTOVER.SAMPLE..0.5. > 2) %>%
+  arrange(MONTH, WATER, desc(LEFTOVER.SAMPLE..0.5.)) 
+
+write.csv(fish_selection, "fish_selection.csv")
+
+
+```
+
