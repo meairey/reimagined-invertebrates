@@ -12,13 +12,56 @@ source("../LML_SMB_removal/Function_Source_Files/isotope_functions_update.R")
 taxon_frame = read.csv("Data/CSVs/taxon_frame.csv") %>% unique()# rename column
 
 ## Load in isotope measurement file
-data.iso=  read.csv("Data/CSVs/iso_data_clean.csv")
+data.iso=  read.csv("Data/CSVs/iso_data_clean.csv") %>%
+  mutate(D13C = case_when(CATEGORY %nin% c("ALGA", "PLANT") ~ as.numeric(D13C) - 3.32 + .99 * (PER_C / PER_N),
+                          CATEGORY %in% c("ALGA", "PLANT") ~ as.numeric(D13C))) ## lipid correction factor
+
+
+
+
+
+
+
+
+
+
+
+## Standard deviation and means of replicates 
+
+
+reps = data.iso %>% group_by(ITEM_N) %>% 
+  select(ITEM_N, D13C, D15N, CATEGORY) %>%
+  unique() %>%
+  mutate(replicates = n()) %>%
+  filter(replicates > 3) %>%
+  group_by(ITEM_N, replicates) %>%
+  select(ITEM_N, replicates, D13C, D15N, CATEGORY) %>%
+  unique() %>%
+  summarize(mean_C = mean(D13C, na.rm = T), sd_C = sd(D13C, na.rm = T), 
+            mean_N = mean(D15N, na.rm = T), sd_N = sd(D15N, na.rm = T)) %>%
+  rename(`Sample ID` = ITEM_N, 
+         Replicates = replicates, 
+         `Mean D13C` = mean_C, 
+         `SD D13C` = sd_C,
+         "Mean D15N" = mean_N, 
+         "SD D15N" = sd_N) %>%
+  arrange(`Sample ID`) 
+
+
+reps$Group = c("Periphyton", 
+                     "Creek chub", 
+                     "Zooplankton", 
+                     "Zooplankton", 
+                     "Odonata")
+write.csv(reps, file = "Data/CSVs/replicates.csv")
+ 
+
 
 ## Read in isotope sample file
 sample = read.csv("Data/CSVs/isotope_sample.csv")
 
-## Join together -----------------
 
+## Join together -----------------
 
 
 data = data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
@@ -47,7 +90,7 @@ data = data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
   mutate(group = as.numeric(as.factor(group.name))) %>%
   arrange(community, group) %>%
   as.data.frame() %>%
-  select(iso1, iso2, group, community, group.name, community.name)
+  select(iso1, iso2, group, community, group.name, community.name) 
 
 save(data, file = "Data/RData/isotope_data.RData")
 
@@ -62,6 +105,9 @@ community.legend = data %>% select(community, community.name) %>%
   unique()
 
 legend
+
+
+
 
 
 # options for running jags
@@ -88,7 +134,7 @@ posterior = siberMVN(siber.object, parms, priors)
 
 overlap_list = list() 
 
-communities = unique(siber.data$community)[c(-10, -15,-20)]
+communities = unique(siber.data$community)[c(-7,-10, -15,-20)]
 
 for(h in 1:length(communities)){
   
@@ -121,7 +167,7 @@ overlap.long = overlap_data %>%
 
 ## table 
 
-df = overlap.long%>% ungroup() 
+df = overlap.long %>% ungroup() 
 df$group1 = sapply(strsplit(df$Species_Pair, "-"), function(x) min(x))
 df$group2 <- sapply(strsplit(df$Species_Pair, "-"), function(x) max(x))
 
@@ -136,7 +182,9 @@ df.long = df %>%
   unique() %>%
   mutate(Community = as.numeric(Community)) %>%
   left_join(community.legend, by = c("Community" = "community")) %>%
-  separate(sorted_comparison, into = c("s1", "s2"), sep = "_", remove = F)
+  separate(sorted_comparison, into = c("s1", "s2"), sep = "_", remove = F) %>%
+  filter(s1 != "ZOOP",
+         s2 != "ZOOP")
 
 
 ## Looking at the overlap
@@ -161,18 +209,19 @@ group.overlap %>%
   geom_boxplot()
 
 
-axis_order = c("aeshnidae","gomphidae", "libellulidae", "corduliidae", "coenagrionidae", "heptageniidae", "leptophlebiidae", "ephemerellidae", "notonectidae", "viviparidae", "lymnaeidae","phryganeidae","limnephilidae", "hydropsychidae", "chironomidae", "asellidae", "talitridae", "ZOOP")
+axis_order = c("aeshnidae","gomphidae", "libellulidae", "corduliidae", "coenagrionidae", "heptageniidae", "leptophlebiidae", "ephemerellidae", "notonectidae", "viviparidae", "lymnaeidae","phryganeidae","limnephilidae", "hydropsychidae", "chironomidae", "asellidae", "talitridae")
 
 group.overlap  %>%
   filter(group1 == group2, group1 == "macroinvert") %>%
   group_by(Community, sorted_comparison, s1, s2) %>%
   summarize(mean_overlap = mean(Values)) %>%
-  ggplot(aes(x = factor(s1, levels = axis_order), 
-             y = factor(s2, levels = rev(axis_order)), 
+  ggplot(aes(y = factor(s1, levels = rev(axis_order)), 
+             x = factor(s2, levels = (axis_order)), 
              col = mean_overlap)) +
   geom_point(size = 3) +
   theme_minimal() + 
-  scale_color_viridis_b() +
+  #scale_color_viridis_b() +
+  scale_color_gradientn(colors = wes_palette("Darjeeling1", type = "continuous", n = 100)) +
   theme(axis.text.x = element_text(angle = 90, vjust = .5),
         axis.title.y = element_blank()) +
   xlab("Family") +
@@ -322,6 +371,10 @@ area_summary = ellipse.area %>% group_by(community,community.name, group.name, g
   left_join(richness)
 
 
+area_summary %>% group_by(group.name) %>%
+  summarize(n() ) %>%
+  print(n = 100)
+
 ## For loop for overlap and metric - automates the regressions across variables
 
 area.loop = area_summary %>% 
@@ -367,9 +420,11 @@ for(i in 1:length(unique(area.loop$metric))){
   }
 }
 
+
+
 ## Create the DOC graph - the only significant variable...
 area_summary %>% filter(group.name %in% c("gomphidae", "heptageniidae", "coenagrionidae")) %>%
-  lm(data = ., mean_area ~ DOC.1) %>% summary()
+  lm(data = ., mean_area ~ TotalP) %>% summary()
 
 ## FFG --------------
 

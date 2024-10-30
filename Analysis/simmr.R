@@ -7,7 +7,9 @@ library(tidyverse)
 # Taxon frame
 taxon_frame = read.csv("Data/CSVs/taxon_frame.csv") %>% unique()# rename column
 ## Load in isotope measurement file
-data.iso=  read.csv("Data/CSVs/iso_data_clean.csv")
+data.iso=  read.csv("Data/CSVs/iso_data_clean.csv") %>%
+  mutate(D13C = case_when(CATEGORY %nin% c("ALGA", "PLANT") ~ as.numeric(D13C) - 3.32 + .99 * (PER_C / PER_N),
+                          CATEGORY %in% c("ALGA", "PLANT") ~ as.numeric(D13C))) ## lipid correction factor
 
 ## Read in isotope sample file
 sample = read.csv("Data/CSVs/isotope_sample.csv")
@@ -38,47 +40,30 @@ baselines =  data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
               mean_n = mean(D15N, na.rm = T), 
               sd_c = sd(D13C, na.rm = T), 
               sd_n = sd(D15N, na.rm = T)) %>%
-  na.omit()
+  na.omit() %>%
+  ungroup() %>%
+  complete(community.name, group.name) %>%
+  select(community, community.name, group.name, mean_c, mean_n, sd_c, sd_n)
 
 
-data.iso %>% filter(GROUP == "LEAF") %>%
-  filter(grepl( "UCL", ISO_YSAMP_N)) %>% summarize(mean = mean(D15N))
-(data.iso %>% filter(GROUP == "LEAF") %>%
-  filter(grepl( "UCL", ISO_YSAMP_N)) %>% select(D13C))$D13C %>% as.numeric() %>% mean()
-
-%>% as.vector() %>% class()
-
+## Adding in zooplankton samples that average across both spring and fall or use spring and fall data
 ## adding the averaged information for HTL zoop in bc not enough 
-baselines[50, 1] = 8; baselines[50, 2] = "HTL.fall"; baselines[50,3] = "ZOOP"
-baselines[50,4] = -33.94; baselines[50,5] = 6.676667; baselines[50,6] = 1.105908
-baselines[50,7] = 2.206362
+baselines[24, 1] = 8; baselines[24, 2] = "HTL.fall"; baselines[24,3] = "ZOOP"
+baselines[24,4] = -33.94; baselines[24,5] = 6.676667; baselines[24,6] = 1.105908
+baselines[24,7] = 2.206362
+
+
+## adding the averaged information for SEL zoop in bc not enough 
+baselines[51, 1] = 18; baselines[51, 2] = "SEL.fall"; baselines[51,3] = "ZOOP"
+baselines[51,4] = -31.1; baselines[51,5] = 6.60; baselines[51,6] = 0.735
+baselines[51,7] = 2.84
 
 
 
 
-
-## Making ETL leaves, the same as GNL leaves
-baselines[51,1] = 6; baselines[51,2] = "ETL.fall"; baselines[51,3] = "LEAF"
-baselines[51,4] = -32.95; baselines[51,5] = -4.73
-baselines[51,6]=0.5807179;  baselines[51,7] = 0.5980803
-
-## Making LML Leaves, the same as GNL leaves
-baselines[52,1] = 12; baselines[52,2] = "LML.fall"; baselines[52,3] = "LEAF"
-baselines[52,4] = -32.95; baselines[52,5] = -4.73
-baselines[52,6]=0.5807179;  baselines[52,7] = 0.5980803
-
-## adding the averaged information for HTL
-
-baselines[53, 1] = 9; baselines[53, 2] = "HTL.spring"; baselines[53,3] = "LEAF"
-baselines[53,4] = -32.46833; baselines[53,5] =  -4.1383337; baselines[53,6] = 0.5194773
-baselines[53,7] =2.279907
-
-
-## adding the averaged information for UCL.spring leaves
-baselines[54, 1] = 22; baselines[54, 2] = "UCL.spring"; baselines[54,3] = "LEAF"
-baselines[54,4] = -31.7825; baselines[54,5] =-2.005 ; baselines[54,6] =1.259736
-baselines[54,7] =1.467914
-
+## saving the baseline frame
+save(baselines, file = "Data/RData/baselines.RData")
+load(file = "Data/RData/baselines.RData")
 
 # visualize the resources
 baselines %>% separate(community.name, into = c("water", "season")) %>%
@@ -104,11 +89,11 @@ mixtures =  data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
   mutate(group = as.numeric(as.factor(group.name))) %>%
   arrange(community, group) %>%
   as.data.frame() %>%
-  filter(group.name %nin% c("LEAF", "PERI", "ZOOP")) 
+  filter(group.name %nin% c("LEAF", "PERI", "ZOOP", "FISH")) 
 
 
-
-
+save(mixtures, file = "Data/RData/mixtures.RData")
+load(file = "Data/RData/mixtures.RData")
 ## For loop through communities 
 
 
@@ -152,6 +137,9 @@ output.list.clean = output.list[-which(is.na(output.list))]
 
 simmr.output = Reduce(full_join, output.list.clean)
 
+save(simmr.output, file = "Data/RData/simmr.output.RData")
+load(file = "Data/RData/simmr.output.RData")
+
 simmr.output %>% filter(rowname %in% c("LEAF", "ZOOP", "PERI")) %>%
   select(rowname, mean, community.name) %>%
   ggplot(aes(x = community.name, y = mean, fill = rowname)) + 
@@ -193,21 +181,37 @@ filtered.simmr[, c(-3,-4,-5,-6,-7,-8,-9,-10)] %>%
   geom_smooth(method = "lm") +
   facet_wrap(~metric, scales = "free_x")
 
+
+
+filtered.simmr %>% 
+  ggplot(aes(x = sechi.depth, y = mean, col = rowname)) +
+  geom_point() +
+  geom_smooth(method = lm) + 
+  theme_minimal(base_size = 12) +
+  scale_color_manual("Source", values = wes_palette("Darjeeling1"), 
+                     labels = c("Leaf", "Periphyton", "Zooplankton")) +
+  xlab("Secchi Depth") +
+  ylab("Source Contribution")
+
+
 zoop.test = simmr.output %>%
   filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
   group_by(community.name) %>%
   mutate(groups = length(unique(rowname))) %>%
-  filter(groups == 3)  %>% left_join(richness, by = c("community.name")) %>%
-  filter(rowname %in% "PERI")
+  filter(groups == 3)  %>% 
+  left_join(richness, by = c("community.name")) %>%
+  filter(rowname %in% "LEAF")
 
 zoop.test %>%
-  ggplot(aes(x = FUI.num, y = mean)) + 
+  ggplot(aes(x = sechi.depth, y = mean)) + 
   geom_point() + 
   geom_smooth(method = "lm")
 
-lm(data = zoop.test, mean ~ fui.num) %>% summary()
 
 
+lm(data = zoop.test, mean ~ sechi.depth) %>% summary()
+
+glm(data = zoop.test,mean ~ thermo_depth) %>% summary()
 
 ## filtering out lakes without all three sources and comparing across clusters
 simmr.output %>% 
@@ -223,14 +227,16 @@ simmr.output %>%
 
 
 
-library(wesanderson)
-simmr.output %>% 
+
+simmr.all = simmr.output %>% 
   left_join(richness, by = c("community.name")) %>%
   filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
   group_by(community.name) %>%
   mutate(groups = length(unique(rowname))) %>%
-  filter(groups == 3) %>%
-  ggplot(aes(x = rowname, y = mean, fill = rowname)) + 
+  filter(groups == 2) 
+ 
+  
+simmr.all %>% ggplot(aes(x = rowname, y = mean, fill = rowname)) + 
   geom_boxplot() +
   geom_point() +
   theme_minimal() + 
@@ -241,53 +247,68 @@ simmr.output %>%
         legend.position = "none") +
   ylab("Average Source Contribution")
 
+
+
+
 ## Food webs sampled are very much powered by periphyton compared to zooplankton Which makes sense because we sampled littoral webs
-simmr.output %>% 
+aov.simmr = simmr.all %>%
+  aov(data = ., .$mean ~ .$rowname) 
+
+print(aov.simmr %>% summary())
+
+TukeyHSD(aov.simmr) 
+
+
+
+simmr.subset = simmr.output %>% 
   left_join(richness, by = c("community.name")) %>%
   filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
   group_by(community.name) %>%
   mutate(groups = length(unique(rowname))) %>%
-  filter(groups == 3) %>%
-  aov(data = ., .$mean ~ .$rowname) %>% summary()
+  filter(groups == 2) 
+
+
+
+simmr.subset %>%  ggplot(aes(x = rowname, y = mean, fill = rowname)) + 
+  geom_boxplot() +
+  geom_point() +
+  theme_minimal() + 
+  scale_fill_manual(values = wes_palette("Darjeeling1")) + 
+  labs(fill = "Source") + 
+ # scale_x_discrete(labels = c("Leaf", "Periphyton", "Zooplankton")) +
+  theme(axis.title.x = element_blank(),
+        legend.position = "none") +
+  ylab("Average Source Contribution")
+
+
+### SIMMR broken up with the two source models separated but included in the graph
+
+source_labels = c("2" = "Two Source Model", "3" = "Three Source Model")
+
+simmr.output %>% 
+  left_join(richness, by = c("community.name")) %>%
+  filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
+  mutate(rowname = str_replace(rowname, "ZOOP", "Zooplankton"), 
+         rowname = str_replace(rowname, "PERI", "Periphyton"), 
+         rowname = str_replace(rowname, "LEAF", "Leaf")) %>%
+  group_by(community.name) %>%
+  mutate(groups = length(unique(rowname)))  %>%  
+
+  ggplot(aes(x = rowname, y = mean, fill = rowname)) + 
+  geom_boxplot(width = .5) +
+  geom_point() +
+  theme_minimal() + 
+  scale_fill_manual(values = wes_palette("Darjeeling1")) + 
+  labs(fill = "Source") + 
+
+  theme(axis.title.x = element_blank(),
+        legend.position = "none") +
+  ylab("Average Source Contribution") + 
+  facet_wrap(~groups, scales = "free_x", labeller = as_labeller(source_labels))
 
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#### ------------------
-
-## With groups
-simmr_in <- simmr_load(
-  mixtures =  as.matrix(test.mix[,2:3]),
-  source_names = test.base$group.name ,
-  source_means = test.base %>% select(mean_c, mean_n),
-  source_sds = test.base %>% select(sd_c, sd_n),
-  group = test.mix$group.name
-)
-plot(simmr_in)
-
-simmr_out = simmr_mcmc(simmr_in)
-summary(simmr_out, type = "diagnostics")
-post_pred <- posterior_predictive(simmr_out)
-
-compare_groups(simmr_out,
-               source = "LEAF",
-               groups = 1:2
-)
 

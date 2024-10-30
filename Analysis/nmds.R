@@ -47,7 +47,7 @@ order_matrix = full %>%
 nmds.dat ## Frame is presence absence, sites are rows. columns are families.
 
 # Run the NMDS using Bray-Curtis distance ------------------------------
-nmds <- metaMDS(nmds.dat, distance = "bray", trymax = 100)
+nmds <- metaMDS(nmds.dat, distance = "jaccard", trymax = 100)
 
 
 ## K means clustering of lakes by community
@@ -125,8 +125,9 @@ species %>% ggplot(aes(x = MDS1, y = MDS2, label = ID)) +
 ## PERMANOVA to see if these site clusters are significant
 
 # Run PERMANOVA using the distance matrix and clusters as the grouping factor
-distance_matrix <- vegdist(nmds.dat %>% 
-                             select(-season, -WATER, -cluster), method = "bray")
+distance_matrix <- vegdist(nmds.dat #%>% 
+                             #select(-season, -WATER, -cluster)
+                           , method = "bray")
 adonis2(distance_matrix~site_scores$cluster)
  
 ## Consider separating this out to remove taxa that occur in all clusters or taxa that occur in neither of the paired clusters
@@ -144,7 +145,7 @@ simper1 = simper_result$`1_3`$cusum %>%
   rownames_to_column(var = "family") %>%
   mutate(group = "C1vC3")
 
-simper2 =  simper_result$`3_2`$cusum %>% 
+simper2 =  simper_result$`2_3`$cusum %>% 
   as.matrix() %>% 
   as.data.frame() %>%
   rownames_to_column(var = "family") %>%
@@ -158,7 +159,10 @@ simper3 =  simper_result$`1_2`$cusum %>%
   mutate(group = "C1vC2")
 
 simper_df =  rbind(simper1, simper2, simper3) %>%
-  rename(contribution = V1)
+  rename(contribution = V1) %>%
+  mutate(group = case_when(group == "C1vC2" ~ "Cluster 1 v. Cluster 2",
+                           group == "C1vC3" ~ "Cluster 1 v. Cluster 3", 
+                           group == "C3vC2" ~ "Cluster 2 v. Cluster 3"))
 
 library(tidytext)
 # Create a bar plot
@@ -176,10 +180,22 @@ simper_df %>%
 
 simper_df %>%
   left_join(order_matrix, by = c("family" = "FAMILY")) %>%
-  ggplot(aes(x = ORDER, y = contribution)) +
+  ggplot(aes(x = ORDER, y = contribution, fill = ORDER)) +
   geom_boxplot() + 
   theme_minimal() + 
-  theme(axis.text.x = element_text(angle = 90, vjust = .5))
+  theme(axis.text.x = element_text(angle = 45, vjust = .5),
+        axis.title.x = element_blank(), 
+        legend.position = "none") +
+  scale_fill_manual(values = wes_palette("Darjeeling1",
+                                         type = "continuous", n = 14)) +
+  ylab("Contribution to Dissimilarity") + 
+  
+  geom_segment(aes(x = "hirudinea", xend = "odonata", y = 1.1)) + 
+  geom_segment(aes(x = "coleoptera", xend = "odonata", y = 1.14)) + 
+  geom_segment(aes(x = "odonata", xend = "trichoptera", y = 1.18)) +
+  geom_text(aes(label = "*", x = "hirudinea", y = 1.11), size = 4) +
+  geom_text(aes(label = "**", x = "coleoptera", y = 1.15), size = 4) +
+  geom_text(aes(label = "**", x = "trichoptera", y = 1.19), size = 4)
 
 
 
@@ -195,6 +211,12 @@ tukey.dis = (TukeyHSD(dis.aov))
 
 tukey.dis$ORDER %>% as.data.frame() %>%
   filter(`p adj` < .05)
+
+
+
+
+
+
 
 ## Contribution of different odonata to differences across clusters
 simper_df %>%
@@ -278,6 +300,7 @@ taxa.assignments %>% left_join(taxon_frame) %>%
   theme(axis.text.x = element_text(angle = 45, vjust = .5))
 
 taxa.assignments %>% left_join(taxon_frame) %>%
+  #rename(ORDER = ORDER..OR.ABOVE.) %>%
   select(cluster, ORDER) %>%
   unique() %>%
   ggplot(aes(fill = ORDER, x = cluster)) +
@@ -287,13 +310,17 @@ taxa.assignments %>% left_join(taxon_frame) %>%
   scale_fill_manual(values = wes_palette("Darjeeling1", type = "continuous", n = 14)) +
   ylab("Number of Families")
 
-## Trying to lables these
+## Trying to labels these
 
 counts <- taxa.assignments %>%
-  left_join(taxon_frame) %>%
+  left_join(taxon_frame)  %>%
+ # rename(ORDER = ORDER..OR.ABOVE.)%>%
+  select(cluster, FAMILY, ORDER) %>%
+  unique() %>%
   group_by(cluster, ORDER) %>%
   summarise(count = n()) %>%
   ungroup()
+
 # Then, plot the bar graph with text labels
 ggplot(counts, aes(fill = ORDER, x = cluster, y = count)) +
   geom_bar(stat = "identity") +  # Change to stat = "identity" since counts are pre-calculated
@@ -378,5 +405,8 @@ TukeyHSD(aov(data = richness, richness ~ cluster))
 
 ### Taxa by order across clusters
 
+write.csv(richness, file = "Data/CSVs/richness.csv")
 
-richness
+### Functional feeding groups across clusters
+
+
