@@ -3,7 +3,7 @@ library(tidyverse)
 library(wesanderson)
 `%nin%` = Negate("%in%")
 set.seed(123)
-source("../LML_SMB_removal/Function_Source_Files/isotope_functions_update.R")
+source("../solid-fishstick/Data/isotope_functions_update.R")
 ## SIBER ------------
 
 ## Load in taxon data
@@ -19,12 +19,16 @@ data.iso=  read.csv("Data/CSVs/iso_data_clean.csv") %>%
 
 
 
+data.iso %>% select(ISO_YSAMP_N, TAXON) %>% left_join(taxon_frame) %>% filter(FAMILY == "caenidae")
 
 
+sample = read.csv("../1.clean_isotope/isotope_sample.csv")
+iso = read.csv("../1.clean_isotope/iso_measurement.csv")  %>%
+  left_join(sample)
 
-
-
-
+iso %>% 
+  filter(WATER == "SEL", 
+         GROUP == "ZOOP")
 
 ## Standard deviation and means of replicates 
 
@@ -93,6 +97,7 @@ data = data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
   select(iso1, iso2, group, community, group.name, community.name) 
 
 save(data, file = "Data/RData/isotope_data.RData")
+load(file = "Data/RData/isotope_data.RData")
 
 siber.data = data %>% select(-group.name, -community.name)
 legend = data %>% select(group.name,group) %>%
@@ -103,6 +108,7 @@ legend = data %>% select(group.name,group) %>%
 
 community.legend = data %>% select(community, community.name) %>%
   unique()
+
 
 legend
 
@@ -138,9 +144,11 @@ communities = unique(siber.data$community)[c(-7,-10, -15,-20)]
 
 for(h in 1:length(communities)){
   
-  overlap_list[[h]] = overlap(siber.data, communities[h],10, posterior, legend) %>% as.data.frame()
+  overlap_list[[h]] = overlap(siber.data, communities[h],10, posterior) %>% as.data.frame()
 }
 
+
+## Looks like i had added legend into the function?, legend
 # Code to reduce list to matrix 
 overlap_data = Reduce(full_join, overlap_list) %>%
   select('SppPair', everything())
@@ -319,15 +327,17 @@ axis_order = c("aeshnidae","gomphidae", "libellulidae", "corduliidae", "coenagri
 order_colors = c("#904E55", "#94A187","#29524A","#3AAFB9", "#C5AFA0", "#6F1A07", "#875C74","#322E18")
 order_colors = wes_palette("Darjeeling1", type = "continuous", n = 8)
 order_levels = c("odonata", "ephemeroptera", "hemiptera", "gastropoda", "trichoptera", "diptera", "isopoda", "amphipoda")
+## Regular figure of niche area and order
 ellipse.area %>%
   mutate(community = as.numeric(community),
          group = as.numeric(group)) %>%
   left_join(community.legend) %>%
   left_join(legend) %>%
   left_join(taxon_frame, by = c("group.name" = "FAMILY")) %>%
-  filter(group.name %nin% c("FISH", "LEAF","PERI","ZOOP")) %>%
+  filter(group.name %nin% c("FISH", "LEAF","PERI","ZOOP", "INSECT")) %>%
   group_by(post_n,  group, group.name, ORDER) %>%
   summarize(area = mean(area)) %>%
+
   ggplot(aes(x = factor(group.name, levels = axis_order), 
              y = area,
              fill = factor(ORDER, levels = order_levels))) + 
@@ -341,6 +351,36 @@ ellipse.area %>%
   scale_fill_manual(values = order_colors) +
   scale_y_log10() +
   labs(fill = "Order")
+
+# Broken out by cluster for thinking about niche size across lake type
+ellipse.area %>%
+  mutate(community = as.numeric(community),
+         group = as.numeric(group)) %>%
+  left_join(community.legend) %>%
+  left_join(legend) %>%
+  left_join(taxon_frame, by = c("group.name" = "FAMILY")) %>%
+  filter(group.name %nin% c("FISH", "LEAF","PERI","ZOOP", "INSECT")) %>%
+  group_by(post_n,  group, group.name, ORDER) %>%
+  summarize(area = mean(area)) %>%
+  left_join(taxa.assign %>% select(-ORDER), by = c("group.name" = "FAMILY")) %>%
+  ggplot(aes(x = factor(group.name, levels = axis_order), 
+             y = area,
+             fill = factor(ORDER, levels = order_levels))) + 
+  geom_boxplot(outliers = FALSE) +
+  
+  theme_minimal() + 
+  #theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 40, hjust = 1),
+        axis.title.x = element_blank()) +
+  ylab("Niche Area") +
+  scale_fill_manual(values = order_colors) +
+  scale_y_log10() +
+  labs(fill = "Order") + 
+  facet_wrap(~cluster, scales = "free_x")
+
+## 
+
+
 
 
 ellipse.area %>%
@@ -364,6 +404,47 @@ ellipse.area %>%
   facet_wrap(~community.name, scales = "free")
 
 
+
+## Does standard deviation of niche area vary between clusters?
+
+area.cluster = ellipse.area %>%
+  mutate(community = as.numeric(community),
+         group = as.numeric(group)) %>%
+  left_join(community.legend) %>%
+  left_join(legend) %>%
+  filter(group.name %nin% c("FISH", "LEAF","PERI","ZOOP", "INSECT")) %>%
+  ungroup() %>%
+  select(community, group.name, post_n, area) %>%
+  left_join(taxon_frame %>% select(FAMILY,ORDER) %>% unique(), by = c("group.name" = "FAMILY")) %>%
+  group_by(post_n,  group.name, ORDER) %>%
+  summarize(area = mean(area)) %>%
+  left_join(taxa.assign %>% select(-ORDER), by = c("group.name" = "FAMILY")) %>%
+  ungroup() %>% 
+  group_by(post_n, cluster) %>%
+  summarize(sd_area = mean(area)) 
+
+## Graph
+area.cluster %>%
+  ggplot(aes(x = cluster, 
+             y = sd_area, 
+             fill = cluster)) + 
+  geom_boxplot(outliers = FALSE) +
+   theme_minimal() + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 40, hjust = 1),
+        axis.title.x = element_blank()) +
+  ylab("Niche Area") +
+  scale_y_log10() +
+  scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)])
+
+## sig difference
+
+area.cluster %>% pivot_wider(names_from = cluster, values_from = sd_area) %>%
+  mutate(dif1_2 =  `2`-`1`,
+         dif1_3 = `1` - `3`) %>%
+  ungroup() %>%
+  summarize(mean1_2 = mean(dif1_2), quant.low1_2 = quantile(dif1_2, .025), quant.high1_2 = quantile(dif1_2, .975),
+            mean1_3 = mean(dif1_3), quant.low1_3 = quantile(dif1_3, .025), quant.high1_3 = quantile(dif1_3, .975))
 
 ## Join area with the data out of richness to get chemistry for each of the waters
 area_summary = ellipse.area %>% group_by(community,community.name, group.name, group) %>%
@@ -405,12 +486,13 @@ for(i in 1:length(unique(area.loop$metric))){
     print(lm.summary.area$r.squared)
     g = lm.area  %>%
       ggplot(aes(x = values, y = mean_area)) + 
-      geom_point(aes(col = group.name)) +
+      geom_jitter(aes(col = group.name), size = 3, alpha = .5) +
       geom_smooth(method = "lm", col="black") +
-      theme_minimal() +
+      theme_minimal(base_size = 20) +
       xlab(paste(lm.area$metric %>% unique)) +
       ylab("Niche Area") +
       labs(col = "Family") +
+      xlab("DOC") +
       scale_color_manual(values = wes_palette("Darjeeling1")) 
       
     print(g)
@@ -426,6 +508,18 @@ for(i in 1:length(unique(area.loop$metric))){
 area_summary %>% filter(group.name %in% c("gomphidae", "heptageniidae", "coenagrionidae")) %>%
   lm(data = ., mean_area ~ TotalP) %>% summary()
 
+load(file = "Data/RData/taxa.clusters.RData")
+area_summary %>%
+  ungroup() %>%
+  select(group.name, mean_area) %>%
+ # group_by( group.name) %>%
+# summarize(mean_area = mean(mean_area)) %>% 
+  filter(group.name %nin% c("FISH", "INSECT", "LEAF","ZOOP")) %>%
+  left_join(taxa.assign, by = c("group.name" = "FAMILY")) %>%
+  
+  ggplot(aes(x = cluster, y = mean_area)) + 
+  geom_boxplot() + 
+  geom_point()
 ## FFG --------------
 
 ffg = read.csv("Data/CSVs/FFGS.csv") %>%

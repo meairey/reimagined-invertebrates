@@ -231,3 +231,158 @@ data = read.csv("Data/CSVs/iso_data_clean.csv")
 not_run = submitted[which(submitted$Sample_ID %in% data$ITEM_N == FALSE),]
 
 write.csv(not_run, "Data/CSVs/data cleaning/not_run_loaded.csv")
+
+
+
+### sulfur data
+
+library(tidyverse)
+
+## Load in isotope measurement file
+data = read.csv("Data/CSVs/iso_data_clean.csv")
+sample = read.csv("Data/CSVs/isotope_sample.csv")
+## load in sulfur file
+
+sulfur = read.csv("Data/CSVs/data cleaning/sulfur.csv")
+
+## Taxon frame
+taxon_frame = read.csv("Data/CSVs/taxon_frame.csv")
+
+frank = left_join(data, sulfur) %>%
+  group_by(ITEM_N) %>%
+  unique()
+
+
+
+
+write.csv(frank, file = "Data/CSVs/data cleaning/sulfur_combined.csv")
+
+
+s = read.csv("Data/CSVs/data cleaning/sulfur_combined.csv")
+
+s = dim(unique(s))
+
+write.csv(s, file ="Data/CSVs/data cleaning/sulfur_combined.csv" )
+
+s.dat = frank %>% 
+  select(ISO_YSAMP_N, ITEM_N,CATEGORY, GROUP, X34S, TAXON) %>%
+  unique() %>%
+  filter(is.na(X34S) == F) %>%
+  left_join(sample) %>%
+  left_join(taxon_frame)
+
+s.dat %>% 
+  ggplot(aes(x = GROUP, y = X34S)) + 
+  geom_boxplot()
+
+
+s.dat %>%
+  ggplot(aes(x = WATER, y = X34S)) + 
+  geom_boxplot() + 
+  geom_point() + 
+  facet_wrap(~GROUP)
+
+s.dat %>% filter(WATER == "UCL", GROUP == "FISH") %>%
+  ggplot(aes(x = WATER, y = X34S, col = TAXON)) + 
+  geom_boxplot() + 
+  geom_point() + 
+  facet_wrap(~GROUP)
+  
+
+s.dat %>% filter( GROUP == "INSECT") %>%
+  ggplot(aes(x = WATER, y = X34S, col = ORDER)) + 
+  geom_boxplot() + 
+  geom_point() + 
+  facet_wrap(~GROUP)
+
+
+
+data = read.csv("Data/CSVs/updated_clean/iso_measurement.csv")
+sample = read.csv("Data/CSVs/updated_clean/iso_sample.csv")
+
+dim(data)
+left_join(data, sample) %>% dim()
+
+
+library(tidyverse)
+## Adding in the hydrogen data
+
+data = read.csv("Data/CSVs/data cleaning//iso_measurement.csv")
+sample = read.csv("Data/CSVs/data cleaning//iso_sample.csv")
+H_data = read.csv("Data/CSVs/data cleaning/H_data.csv")
+
+new = left_join(data, H_data, by = c("ITEM_N" = "Sample.ID")) %>%
+  left_join(sample) %>%
+  left_join(taxon_frame)
+
+write.csv(left_join(data, H_data, by = c("ITEM_N" = "Sample.ID")), file = "Data/CSVs/data cleaning/updated_H.csv")
+
+cat = data %>% 
+  group_by(ITEM_N) %>%
+  summarize(count.a =  n())
+
+
+dog = new %>% 
+  group_by(ITEM_N) %>%
+  summarize(count.b =  n())
+
+left_join(cat, dog) %>%
+  filter(count.a != count.b)
+
+new %>% 
+  ggplot(aes(x = WATER, y = d2HVSMOW, col = GROUP)) + 
+  geom_jitter() +
+  geom_boxplot()
+
+new %>%
+  filter(GROUP %in% c("INSECT","LEAF" )) %>%
+  select(FAMILY, d2HVSMOW, GROUP) %>%
+  #na.omit() %>%
+  ggplot(aes(x = FAMILY, y = d2HVSMOW, col = MONTH)) + 
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 90, vjust = .5)) 
+
+
+new %>% filter(GROUP %in% c("LEAF", "PERI", "ZOOP")) %>%
+  ggplot(aes(x = GROUP, y = d2HVSMOW, col = as.factor(MONTH))) + 
+  geom_point() +
+  facet_wrap(~WATER)
+
+richness = read.csv("Data/CSVs/richness.csv") %>%
+  separate(community.name, into = c("WATER", "season"))
+
+H.rich = new %>%
+  #filter(GROUP %in% c("INSECT","LEAF" )) %>%
+  select(ISO_YSAMP_N, MONTH, WATER,   FAMILY, d2HVSMOW, GROUP) %>%
+  mutate(season = case_when(MONTH > 7 ~ "fall",
+                          MONTH < 7 ~ "spring")) %>%
+  left_join(richness)
+
+H.rich %>% 
+  filter(GROUP %nin% c("INSECT" )) %>%
+  select(DOC.1, d2HVSMOW, GROUP) %>%
+  na.omit() %>%
+  ggplot(aes(x = DOC.1, y = d2HVSMOW, col = GROUP)) + 
+  geom_point()+ 
+  geom_smooth(method = lm, se = F)
+
+H.rich %>% 
+  filter(GROUP %in% c("INSECT" )) %>%
+  select(DOC.1, d2HVSMOW, GROUP, MONTH) %>%
+  na.omit() %>%
+  #{ cor.test(.$d2HVSMOW, .$DOC.1) }
+  ggplot(aes(x = DOC.1, y = d2HVSMOW, col = MONTH)) + 
+  geom_point() + 
+  geom_smooth(method = lm, se = F)
+
+H.rich %>% 
+  filter(GROUP %in% c("INSECT" )) %>%
+  select(DOC.1, Volume, d2HVSMOW, GROUP, MONTH) %>%
+  na.omit() %>%
+  { cor.test(.$d2HVSMOW, .$Volume) }
+  ggplot(aes(x = Volume, y = d2HVSMOW, col = MONTH)) + 
+  geom_point() + 
+  geom_smooth(method = lm, se = F)
+
+## Volume & DOC.1 look significant and so does
+# Increasing DOC suggests depletion of 2H

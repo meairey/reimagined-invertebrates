@@ -20,15 +20,37 @@ dat = acd %>% filter(YEAR > 2013) %>%
   group_by(WATER, METRIC) %>%
   summarize(mean.v1 = mean(VALUE_1, na.rm =T)) %>%
   pivot_wider(names_from = METRIC, values_from = mean.v1)
+
+## Checking that the metrics are right ---------------
+
+
+
+acd %>% select(METRIC, UNIT_1) %>%
+  unique()
   
 ## View lakes water chem through time
  acd %>% filter(WATER %in% c("COM", "ETL","LML", "GNL"),
-                METRIC %in% c("SECCHI DEPTH"))  %>%
+                METRIC %in% c("pH"))  %>%
   ggplot(aes(x = YEAR, y = VALUE_1, col = WATER)) + 
   geom_point(alpha = .5) + 
   geom_smooth(method = lm, col= "black") +
   facet_wrap(~ WATER)
 
+acd %>% filter(WATER %in% c("COM", "ETL","LML", "GNL")) %>%
+  group_by(WATER, METRIC) %>%
+  mutate(total_observations = n()) %>%
+  ungroup() %>% 
+  group_by(METRIC) %>%
+  mutate(total_lakes = length(unique(WATER)))%>%
+  select(total_observations, total_lakes,  everything()) %>%
+  filter(total_observations > 3 & total_lakes > 3, 
+         METRIC %nin% c("SECCHI COLOR","UV254")) %>%
+                 ggplot(aes(x = YEAR, y = VALUE_1, col = WATER)) + 
+                 geom_point(alpha = .5) + 
+                 geom_smooth(method = lm) +
+                 facet_wrap(~ METRIC, scales = "free")
+ 
+ 
 # Don't  need to re-write this every time
 #write.csv(file = "Data/CSVs/ALCwaterChem.csv", dat)
 
@@ -42,6 +64,9 @@ alc.sechi.depth = acd %>%
   na.omit() %>%
   group_by(WATER, season) %>%
   summarize(sechi.depth = mean(VALUE_1))
+
+
+
 # This frame was made and then turned into a csv and then categorically assigned FUI values and then is now reloaded in separately  
 alc.sechi.color = acd %>% 
   filter(METRIC %in% c("SECCHI COLOR"), YEAR > 2000) %>%

@@ -12,6 +12,7 @@ library(dplyr)
 library(tidyr)
 library(tidyverse)
 library(gridExtra)
+library(knitr)
 `%nin%` = Negate(`%in%`)
 ## Month setup
 month_bin = c(0,7,12,15)
@@ -222,7 +223,8 @@ full %>%
   filter(percent_sites ==100) %>% 
   filter(FAMILY %in% (count_month %>% filter(total_lakes > 4))$FAMILY) %>%
   ungroup() %>%
-  select(FAMILY) %>% unique()
+  select(FAMILY) %>% unique() %>%
+  kable(., caption = "Basic Table with knitr::kable")
 
 
 ```
@@ -258,7 +260,7 @@ mullusks %>% select(ORDER..OR.ABOVE., WATER) %>% unique() %>% group_by(ORDER..OR
 ```
 
 
-```{r}
+```{r, include = F, echo = F, eval = FALSE}
 
 compiled = read.csv("SCALE_compiled.csv") %>% 
   filter(MONTH != "NA") %>%
@@ -300,67 +302,9 @@ full %>%
 
 s.d %>% filter(WATER == "SEL") %>%
   select(ORDER..OR.ABOVE., FAMILY, GENUS) %>%
-  unique()
+  unique() %>%
+  kable(.)
   
 ```
-## Choosing HS samples
-```{r}
 
-hs = read.csv("HS_samples.csv")
-library(dplyr)
-
-hs_inverts = hs %>% filter(GROUP == "MACROINVERTEBRATES", 
-              LOADED.FOR.ISOTOPE..Y.N. == "Y",
-              LEFTOVER.SAMPLE..0.5. > 2) %>%
-  rename(MTS_N = SAMP_N)
-
-invert_id = read.csv("SCALE_MTS_2023.csv") %>% select(YSAMP, MTS_N, ORDER..OR.ABOVE., FAMILY) %>%
-  filter(MTS_N != "")
-
-hs_inverts %>% left_join(invert_id)
-
-scale_sample = read.csv("SCALE_sample.csv")
-
-dat = left_join(hs_inverts, scale_sample) %>%left_join(invert_id)
-
-sum = dat %>% group_by(WATER, MONTH, ORDER..OR.ABOVE.) %>%
-  summarize(total = n()) %>%
-  filter(total > 3)
-sum
-
-full = dat %>%  group_by(WATER, MONTH, ORDER..OR.ABOVE.) %>%
-      mutate(total = n()) 
-
-
-full = full %>% 
-  select(YSAMP, MTS_N, GROUP, LEFTOVER.SAMPLE..0.5., WATER, MONTH, ORDER..OR.ABOVE., FAMILY ) 
-
-write.csv(full,"HS_selection.csv")
-
-
-sum$WATER %>% unique() %>% length()
-```
-
-```{r}
-library(tidyverse)
-library(tidyr)
-fish = hs %>% filter(GROUP == "FISH", 
-              LOADED.FOR.ISOTOPE..Y.N. == "Y",
-              LEFTOVER.SAMPLE..0.5. > 3) %>%
-  rename(MTS_N = SAMP_N)
-
-
-fish_id = read.csv("SCALE_MTS_2023.csv") %>% select(YSAMP, MTS_N, ORDER..OR.ABOVE., FAMILY) %>%
-  filter(MTS_N != "")
-
-
-fish_selection = fish %>% separate(YSAMP, into = c("WATER", "MONTH","YEAR")) %>%
-  group_by(MONTH, WATER) %>%
-  filter(LEFTOVER.SAMPLE..0.5. > 2) %>%
-  arrange(MONTH, WATER, desc(LEFTOVER.SAMPLE..0.5.)) 
-
-write.csv(fish_selection, "fish_selection.csv")
-
-
-```
 

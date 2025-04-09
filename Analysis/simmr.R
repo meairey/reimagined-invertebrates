@@ -7,7 +7,8 @@ library(tidyverse)
 # Taxon frame
 taxon_frame = read.csv("Data/CSVs/taxon_frame.csv") %>% unique()# rename column
 ## Load in isotope measurement file
-data.iso=  read.csv("Data/CSVs/iso_data_clean.csv") %>%
+data.iso =  read.csv("../1.clean_isotope/iso_measurement.csv") %>%
+  mutate(D13C = as.numeric(D13C))
   mutate(D13C = case_when(CATEGORY %nin% c("ALGA", "PLANT") ~ as.numeric(D13C) - 3.32 + .99 * (PER_C / PER_N),
                           CATEGORY %in% c("ALGA", "PLANT") ~ as.numeric(D13C))) ## lipid correction factor
 
@@ -185,9 +186,9 @@ filtered.simmr[, c(-3,-4,-5,-6,-7,-8,-9,-10)] %>%
 
 filtered.simmr %>% 
   ggplot(aes(x = sechi.depth, y = mean, col = rowname)) +
-  geom_point() +
+  geom_point(size = 3, alpha = .5, .key_glyph = "rect") +
   geom_smooth(method = lm) + 
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 20) +
   scale_color_manual("Source", values = wes_palette("Darjeeling1"), 
                      labels = c("Leaf", "Periphyton", "Zooplankton")) +
   xlab("Secchi Depth") +
@@ -200,7 +201,7 @@ zoop.test = simmr.output %>%
   mutate(groups = length(unique(rowname))) %>%
   filter(groups == 3)  %>% 
   left_join(richness, by = c("community.name")) %>%
-  filter(rowname %in% "LEAF")
+  filter(rowname %in% "PERI")
 
 zoop.test %>%
   ggplot(aes(x = sechi.depth, y = mean)) + 
@@ -210,6 +211,11 @@ zoop.test %>%
 
 
 lm(data = zoop.test, mean ~ sechi.depth) %>% summary()
+
+
+## Significant increase of periphyton with increasing sechi depth
+
+
 
 glm(data = zoop.test,mean ~ thermo_depth) %>% summary()
 

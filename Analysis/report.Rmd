@@ -1,0 +1,722 @@
+---
+title: "Untitled"
+author: "Montana"
+date: "2024-11-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_knit$set(root.dir =  "C:/Users/monta/OneDrive - Airey Family/GitHub/reimagined-invertebrates")
+```
+
+```{r, message = F, include = F, echo = F, warning = FALSE}
+`%nin%` = Negate(`%in%`)
+library(tidyverse)
+library(knitr)
+library(wesanderson)
+library(ggbeeswarm)
+
+load(file = "Data/RData/FullData.RData")
+
+## Define the number of sites sampled per lake
+
+sites_sampled = full %>% 
+  select(WATER, SITE_N, MONTH) %>%
+  unique() %>%
+  group_by(WATER) %>%
+  summarize(total_samples = n())
+
+## Defined the seasons in which families are sampled
+
+season= full %>%
+  select(WATER, FAMILY, MONTH) %>%
+  unique() %>%
+  group_by(WATER, FAMILY) %>%
+  summarize(seasonal.sum = n())
+
+
+```
+```{r}
+
+## Trying to look at the effect of site on d13C and d15N
+
+
+
+iso = read.csv("Data/CSVs/data cleaning/iso_measurement.csv")
+
+
+
+full %>%
+  select(-GROUP) %>%
+  left_join(iso, by = c("MTS_N" = "ITEM_N")) %>%
+  filter(GROUP == "INSECT") %>%
+  mutate(D13C = as.numeric(D13C),
+         D15N = as.numeric(D15N)) %>% 
+  ggplot(aes(x = D13C,y = D15N, col = SITE_N)) + 
+  geom_point() + 
+  facet_wrap(~WATER, scales = "free") + 
+  stat_ellipse(level = .4) + 
+  theme_minimal(base_size = 14) + 
+  theme(legend.position =  "none")
+
+
+
+full %>%
+  select(-GROUP) %>%
+  left_join(iso, by = c("MTS_N" = "ITEM_N")) %>%
+  filter(GROUP == "INSECT") %>%
+  
+  filter(FAMILY ==  "heptageniidae") %>%
+  filter(MONTH =="SPRING") %>%
+  mutate(D13C = as.numeric(D13C),
+         D15N = as.numeric(D15N)) %>% 
+  ggplot(aes(x = D13C,y = D15N, col = SITE_N)) + 
+  geom_point() + 
+  facet_wrap(~WATER, scales = "free") + 
+  stat_ellipse(level = .4) + 
+  theme_minimal(base_size = 14) + 
+  theme(legend.position =  "none")
+
+full %>%
+  select(-GROUP) %>%
+  left_join(iso, by = c("MTS_N" = "ITEM_N")) %>%
+  filter(GROUP == "INSECT") %>%
+  
+  #filter(FAMILY ==  "heptageniidae") %>%
+  filter(MONTH =="FALL") %>%
+  mutate(D13C = as.numeric(D13C),
+         D15N = as.numeric(D15N)) %>% 
+  ggplot(aes(x = D13C,y = D15N, col = SITE_N)) + 
+  geom_point() + 
+  facet_wrap(~WATER, scales = "free") + 
+  stat_ellipse(level = .4) + 
+  theme_minimal(base_size = 14) + 
+  theme(legend.position =  "none")
+```
+## Is site or season more similar
+```{r}
+
+full %>%
+  select(-GROUP) %>%
+  left_join(iso, by = c("MTS_N" = "ITEM_N")) %>%
+  filter(GROUP == "INSECT") %>%
+  
+  filter(FAMILY ==  "heptageniidae",
+         WATER == "DTL") %>%
+  
+  mutate(D13C = as.numeric(D13C),
+         D15N = as.numeric(D15N)) %>% 
+  ggplot(aes(x = D13C,y = D15N, col = MONTH)) + 
+  geom_point() + 
+  facet_wrap(~SITE_N + WATER, scales = "free") + 
+  stat_ellipse(level = .4) + 
+  theme_minimal(base_size = 14) + 
+  theme(legend.position =  "none")
+
+```
+
+
+
+```{r, message = F, include = F, echo = F}
+
+### Define common and rare taxa 
+common = full %>% 
+  filter(ORDER..OR.ABOVE. != "") %>%
+  filter(FAMILY != "unidentified") %>% 
+  filter(FAMILY != "terrestrial") %>%
+  filter(FAMILY != "") %>%
+  filter(FAMILY != " ") %>%
+  filter(FAMILY != "degraded") %>%
+  group_by(WATER,ORDER..OR.ABOVE., FAMILY, MONTH, SITE_N) %>% 
+  summarize(sum = sum(TOTAL_N)) %>% 
+  mutate(FAMILY = tolower(FAMILY)) %>%
+  mutate(ORDER..OR.ABOVE. = tolower(ORDER..OR.ABOVE.)) %>% 
+  filter(ORDER..OR.ABOVE. != "") %>%
+  rename(ORDER = ORDER..OR.ABOVE.) %>%
+  ungroup() %>% 
+  left_join(season) %>%
+  select(WATER, ORDER, FAMILY, MONTH, SITE_N, seasonal.sum) %>% ## Rare as defined by sampling events + includes seasonality
+  unique() %>%
+  group_by(FAMILY, WATER, seasonal.sum) %>%
+  mutate(proportion.caught = n()) %>%
+  left_join(sites_sampled) %>%
+  mutate(proportion.caught = proportion.caught/total_samples) %>%
+  ungroup() %>%
+  group_by(FAMILY) %>%
+  mutate(prop.lakes = length(unique(WATER))/12) %>%
+  mutate(mean_prop.caught = mean(proportion.caught)) %>%
+  mutate(seasonal.avg = mean(seasonal.sum)/2)
+
+common
+
+```
+
+----------------------------------------
+
+#### Common Taxa 
+
+Common taxa are defined as occurring in greater than 50% of the sampled lakes. In addition, the average proportion of sites per lake is calculated to provide a sense of how likely sampling any taxa is within a lake. Seasonality represent the average proportion of seasons any family was collected in averaged across lakes. 
+
+```{r, echo = F}
+common %>%
+  select(ORDER, FAMILY, prop.lakes, mean_prop.caught, seasonal.avg) %>%
+  filter(prop.lakes > .50) %>%
+  unique() %>%
+  arrange(-prop.lakes) %>%
+  mutate(prop.lakes = round(prop.lakes, digits =2), 
+         mean_prop.caught  = round(mean_prop.caught, digits = 2), 
+         seasonal.avg = round(seasonal.avg, digits = 2)) %>%
+  rename(Order = ORDER,
+         Family = FAMILY, 
+         `Prop. of Lakes` = prop.lakes,
+         `Avg. Prop. of Sites` = mean_prop.caught, 
+         `Seasonality` = seasonal.avg) %>%
+  kable(.)
+```
+
+
+
+
+
+
+## Trophic Position -------------------------------------
+
+Below is a figure depicting the trophic positions of all taxa that were of TP = 1 &plusmn; 1. Trophic position was determined by using a method that weights the source contribution of each basal resource to the taxa within each lake. So, if taxa are more reliant on one source than another, the baseline value from that resource is weighted more heavily when calculating the taxon's trophic position.
+
+```{r, echo = F, message = F, fig.align="center", fig.width= 6, fig.height = 5}
+
+## Visualize the taxa with appropriate trophic positions
+
+## Pallete for coloring respective to order
+order_colors = wes_palette("Darjeeling1", type = "continuous", n = 8) 
+## Levels for displaying orders
+order_levels = c("odonata", "ephemeroptera", "hemiptera", "gastropoda", "trichoptera", "diptera",  "amphipoda", "coleoptera")
+## Load in the simmr data from the file simmr_groups.R where trophic position is calcualted
+load(file = "Data/RData/simmr_full.RData") 
+## Load in the file with taxon info and rename one of the columns
+load(file = "Data/RData/taxon_frame.RData")
+taxon_frame = taxon_frame %>%
+  rename(ORDER = ORDER..OR.ABOVE.)
+## Load in the file with the richness and chemistry information for each lake and unite two columns to create the common join column
+load(file = "Data/RData/richness_cluster.RData")
+richness = richness %>% unite("community.name", c(WATER, season), sep = ".")
+
+## Load trophic position information 
+load(file = "Data/RData/trophic.position.RData")
+
+## Information for ordering graphs
+TP.family = trophic.position %>%
+  ungroup() %>% select(ORDER, FAMILY) %>%
+  arrange(ORDER) %>% select(FAMILY) %>% unique()
+TP.order = trophic.position %>% 
+  ungroup() %>%
+  select(ORDER, FAMILY) %>%
+  arrange(ORDER) %>% select(ORDER) %>% unique()
+
+## Join the simmr dataset with the taxon frame to get taxonic info for graphing
+simmr.full = simmr.full %>% 
+  left_join(taxon_frame %>% 
+              select(ORDER, FAMILY) %>% 
+              filter(FAMILY != "unidentified") %>%
+              unique(), by = c("taxa" = "FAMILY"))
+
+
+
+###
+primary.consumers = trophic.position %>%
+  left_join(richness) %>%
+  group_by(FAMILY) %>% 
+  mutate(count = n()) %>%
+  filter(mean_TP < 1.25) 
+
+primary.consumers %>%
+  ggplot(aes(y = factor(FAMILY, rev(TP.family$FAMILY)),
+             x = trophic_position_weighted,
+             fill = factor(ORDER, TP.order$ORDER))) + 
+  geom_boxplot() +
+  geom_point(alpha = .2) + 
+  theme_minimal() +
+  scale_fill_manual("Order", values = wes_palette("Darjeeling1", type = "continuous", n = 14)) +
+  xlab("Trophic Position") +
+  theme(axis.title.y = element_blank()) 
+```
+
+
+The list of taxa with appropriate trophic positions does not include snails or mussels that are typically used as baseline organisms. However, it does include other macroinvertebrates (i.e. mayflies and chironomids) that are often used as baselines when snails and clams are not available. This study did sample snails and clams. Please see the figure below for more information on their trophic positions.
+
+
+```{r, echo = F, message = F, fig.width = 5, fig.height = 2.5 , fig.align="center"}
+traditional = trophic.position %>%
+  filter(GROUP %in% c("SNAIL", "BIVALVE")) %>%
+  filter(FAMILY != "unionidae")
+
+traditional  %>%
+  ggplot(aes(y = factor(FAMILY, rev(TP.family$FAMILY)),
+             x = trophic_position_weighted,
+             fill = factor(ORDER, TP.order$ORDER))) + 
+  geom_boxplot() +
+  geom_point(alpha = .2) + 
+  theme_minimal() +
+  scale_fill_manual("Order", values = wes_palette("Darjeeling1", type = "continuous", n = 2)) +
+  xlab("Trophic Position") +
+  theme(axis.title.y = element_blank()) 
+  
+
+```
+
+Here we see that 4 of the 5 taxa here have TP greater than the 1.25 cutoff. Some of the viviparids have a TP greater than 2, suggesting that they may be consuming some animal tissue and be acting as secondary consumers. This family is known to filter feed by trapping particle in their gill fillaments as well as consume organic debris that may include animals. Sphaeriidae appear to have the lowest TP of all traditional baselines. These small clams tend to live buried in muddy or sandy lake bottoms and filter particles that include plankton.
+
+## Mean Resource Contribution ----------------------------------------------
+
+
+  The contribution of several resources were assessed in respect to taxa that were of TP = 1 &plusmn; .25. In some lakes, periphyton was not collected due to the absense of rocky substrate. As such, we have included two potential baselines (periphyton and leaves) that would indicate littoral feeding by fish.Three of the taxa are ephemeropterans, one plecopteran, two coleopterans, and one hemipteran. The heptageniidae is one of the common taxa indicated above and would represent a good candidate for a baseline taxa.
+
+
+```{r, echo = F, message = F, fig.width = 5, fig.height = 2.5 , fig.align="center"}
+
+
+
+## Contribution of periphyton to taxa
+## Filtered for taxa that have trophic positions close to 1
+
+candidates = simmr.full %>%
+  filter(rowname %in% c("PERI", "LEAF"),
+         taxa %nin% c("INSECT", "SNAIL", "CHECK", "BIVALVE", "AMPHIPOD", "ARACHNIDA"), 
+         is.na(ORDER) == F, 
+         taxa %in% primary.consumers$FAMILY) %>%
+  group_by(rowname, taxa) %>%
+  mutate(mean_contr = mean(mean)) %>%
+  filter(mean_contr > .5) 
+
+
+candidates %>%
+  ggplot(aes(x =taxa,
+             y = mean)) +
+  geom_boxplot(data = . %>% filter(taxa %nin% c("perlidae", "haliplidae", "gerridae")), aes(fill = rowname), lwd = .1, key_glyph = "rect") +
+  geom_point() +
+  geom_point(data = . %>% filter(taxa %in% c("perlidae", "haliplidae", "gerridae")), aes(col = rowname), size = 1, key_glyph = "rect") + 
+  coord_flip() +
+  ylab("Mean Contribution of Resource") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title.y = element_blank()) +
+  scale_fill_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 2), labels = c("LEAF" = "Leaf", "PERI" = "Periphyton")) +
+  scale_color_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 2), labels = c("LEAF" = "Leaf", "PERI" = "Periphyton"))  
+
+
+## Checking if I add together leaf/peri as "benthic" vs. pelagic
+
+candidates = simmr.full %>%
+  filter(rowname %in% c("PERI", "LEAF"),
+         taxa %nin% c("INSECT", "SNAIL", "CHECK", "BIVALVE", "AMPHIPOD", "ARACHNIDA"), 
+         is.na(ORDER) == F, 
+         taxa %in% primary.consumers$FAMILY) %>%
+  group_by(rowname, taxa) %>%
+  mutate(mean_contr = mean(mean)) %>%
+  group_by(community, taxa, ORDER) %>%
+  summarize(tot_benth = sum(mean)) %>%
+  filter(tot_benth > .5) 
+
+
+candidates %>%
+  filter(taxa %nin% c("perlidae", "haliplidae", "gerridae",
+                      "glossiphoniidae", "baetidae", "crangonyctidae")) %>%
+  ggplot(aes(x =taxa,
+             y = tot_benth)) +
+  geom_boxplot(data = . %>% filter(taxa %nin% c("perlidae", "haliplidae", "gerridae")), lwd = .1, key_glyph = "rect") +
+  geom_point() +
+  geom_point(data = . %>% filter(taxa %nin% c("perlidae", "haliplidae", "gerridae")), size = 1, key_glyph = "rect") + 
+  coord_flip() +
+  ylab("Mean Contribution of Benthic (Leaf + Peri)") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title.y = element_blank()) +
+  scale_fill_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 2), labels = c("LEAF" = "Leaf", "PERI" = "Periphyton")) +
+  scale_color_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 2), labels = c("LEAF" = "Leaf", "PERI" = "Periphyton"))  
+
+```
+
+Please note that the typical organisms used as littoral baselines (snails) are not present on these lists. They tend to possess less reliance on either periphyton and/or leaf litter within these lakes. 
+
+
+##### Traditional baseline resource contributions
+```{r, echo = F, message = F, fig.width = 5, fig.height = 2.5 , fig.align="center"}
+simmr.full %>%
+  filter(rowname %in% c("PERI", "LEAF","ZOOP"),
+          taxa %in% traditional$FAMILY, 
+         is.na(ORDER) == F
+        ) %>%
+  group_by(rowname, taxa) %>%
+  mutate(mean_contr = mean(mean)) %>%
+  #filter(mean_contr > .5) %>%
+  ggplot(aes(x =taxa,
+             y = mean)) +
+  geom_boxplot( aes(fill = rowname), lwd = .1, key_glyph = "rect") +
+
+
+  coord_flip() +
+  ylab("Mean Contribution of Resource") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title.y = element_blank()) +
+  scale_fill_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 3), labels = c("LEAF" = "Leaf", "PERI" = "Periphyton", "ZOOP" = "Zooplankton")) +
+  scale_color_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 3), labels = c("LEAF" = "Leaf", "PERI" = "Periphyton", "ZOOP" = "Zooplankton"))  
+```
+
+Through examination of the traditionally used baseline taxa, we see viviparids stand out with their wide range of reliance on zooplankton. The high contribution of zooplankton to Viviparidae further supports that this taxa is likely filter feeding throughout some of these lakes. Unionids, unexpectedly, assimilate very little C that is attributed to the benthic/pelagic periphyton pathways. The similarity between the contribution of leaves and zooplankton may suggest that they are filter feeding on particulate from the terrestrial environment. Overall, none of these taxa appear to heavily rely on any one of the estimated resources.Thus, they are likely not the best candidates as baseline within this system.
+
+
+## Coefficients of variance -----------------------------------------------
+
+Coefficients of variance are used to understand the relative variability of samples. Below, we compare the CV of the different potential baselines to that of the traditional baselines.
+
+```{r, echo = F, message = F, fig.width = 5, fig.height = 2.5 , fig.align="center", results=FALSE}
+
+load(file = "Data/RData/mixtures.RData")
+## Calculate CV for the candidate families
+CV = mixtures %>%
+  group_by(FAMILY, community.name) %>%
+  summarize(mean_C = mean(D13C), sd_C = sd(D13C), 
+            mean_N = mean(D15N), sd_N = sd(D15N)) %>%
+  mutate(CV_C = sd_C/mean_C, 
+         CV_N = sd_N / mean_N) %>%
+  select(community.name, FAMILY, CV_N, CV_C)%>%
+  na.omit()  %>%
+  group_by(FAMILY) %>%
+  mutate(count = n()) %>%
+  pivot_longer(CV_N:CV_C, names_to = "Iso", values_to = "CV") %>%
+  filter(FAMILY %in% c(traditional$FAMILY, candidates$taxa)) 
+
+## Kruskal Wallis test to see if there are significant differences between candidates for CV
+CV %>% filter(Iso == "CV_C") %>%
+  filter(count > 1) %>%
+  kruskal.test(data = ., CV ~ FAMILY) 
+
+CV %>% filter(Iso == "CV_N") %>%
+  filter(count > 1) %>%
+  kruskal.test(data = ., CV ~ FAMILY) 
+## No significant differences were found
+
+## Plot CV of both isotopes
+CV %>%
+  ggplot( aes(x = abs(CV), y = FAMILY, fill = Iso)) + 
+  geom_boxplot(data = . %>% filter(count > 1), aes(x = abs(CV), y = FAMILY, fill = Iso)) +
+  geom_point() +
+  facet_wrap(~Iso, scales = "free_x", labeller = labeller( Iso = c("CV_C" = "d13C", "CV_N" = "d15N"))) +
+  geom_vline(aes(xintercept = 0)) +
+  theme_minimal() +
+  scale_fill_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 2), labels = c("CV_C" = "CV d13C", "CV_N" = "CV d15N"))  +
+  theme(legend.position = "none", 
+        axis.title.y = element_blank()) +
+  xlab("Coefficient of Variance")
+```
+
+
+A non-parametric Kruskal-Wallis test was used to look at differences between the CVs of the different families. No significant difference was found between groups. Suggesting that no taxa was less variable and might prove more useful as a candidate baseline. It should be noted that the CVs for d13C were lower than those of d15N. 
+
+## Effect of seasonality on potential baselines-----------------------
+
+
+#### Trophic Position
+Trophic position is split up by season to examine the potential effect of season on TP.
+
+```{r, echo = F, message = F, fig.width = 5, fig.height = 2.5 , fig.align="center", results=FALSE}
+## Trophic position ----------------------
+tp.seasonal = trophic.position %>%
+  separate(community.name, into = c("water", "season"), remove = F) %>%
+  filter(FAMILY %in% c(traditional$FAMILY, candidates$taxa)) %>%
+  group_by(FAMILY, season) %>%
+  mutate(count = n()) %>%
+  filter(count > 1) %>%
+  unite("ID", c(FAMILY, season), remove = F)
+
+tp.seasonal %>%
+  ggplot(aes(x = trophic_position_weighted, y=FAMILY, fill=season)) + 
+  geom_boxplot(key_glyph= "rect") +
+  theme_minimal(base_size = 12) + 
+  xlab("Trophic Position") +
+  theme(axis.title.y = element_blank()) +
+  scale_fill_manual("Season", values = wes_palette("Darjeeling2", type = "discrete", n = 2)) 
+
+## There are significant differences between groups
+tp.seasonal %>% kruskal.test(data = ., trophic_position_weighted ~ ID)
+## But nothing to indicate that there is a consistent difference.
+pairwise.wilcox.test(tp.seasonal$trophic_position_weighted, tp.seasonal$ID, p.adjust.method = "bonferroni")
+```
+
+
+Trophic position does not show large seasonal variation. There are no significant differences between the TP of any taxa between fall and spring. Interestingly, for two of the snail families (viviparidae and planorbidae) it does look like trophic position may be slightly higher in the spring than in fall. For Heptageniidae, it is very similar between the two seasons.
+
+### Seasonality effects on the Coefficient of Variance
+
+```{r, echo = F, message = F, fig.width = 5, fig.height = 2.5 , fig.align="center", results=FALSE}
+
+
+CV %>% 
+  separate(community.name, into = c("community", "season"), remove = F) %>%
+  select(-count) %>%
+  group_by(FAMILY, season) %>%
+  mutate(count = n()/2) %>%
+  filter(count > 1) %>%
+  ggplot(aes(x = abs(CV), y = FAMILY, fill = season)) +
+  geom_boxplot() +
+  facet_wrap(~Iso, scales = "free_x", labeller = labeller( Iso = c("CV_C" = "d13C", "CV_N" = "d15N"))) +
+  geom_vline(aes(xintercept = 0)) +
+  theme_minimal() +
+  scale_fill_manual("Season", values = wes_palette("Darjeeling2", type = "discrete", n = 2), labels = c("CV_C" = "CV d13C", "CV_N" = "CV d15N"))  +
+  xlab("Coefficient of Variance") +
+  theme(axis.title.y = element_blank())
+
+
+
+```
+
+### Seasonality of resource consumption
+
+
+The seasonality of resource consumption is examined for candidate and traditional baseline taxa. 
+
+```{r, echo = F, message = F, fig.width = 6, fig.height = 2.5 , fig.align="center", results=FALSE}
+
+simmr.seasonal = simmr.full %>%
+  filter(rowname %in% c("PERI", "LEAF", "ZOOP"),
+         taxa %nin% c("INSECT", "CHECK",  "AMPHIPOD", "ARACHNIDA"), 
+         is.na(ORDER) == F, 
+         taxa %in% c(primary.consumers$FAMILY, candidates$taxa)
+         ) %>%
+  group_by(rowname, taxa) %>%
+  mutate(mean_contr = mean(mean)) %>%
+  separate(community, into= c("community", "season"), remove = F) %>%
+  group_by(taxa) %>%
+  mutate(count = length(unique(season))) %>%
+  filter(count ==2)
+
+
+simmr.seasonal
+
+simmr.seasonal %>%
+  ggplot(aes(x =taxa,
+             y = mean)) +
+  geom_boxplot(data = . %>% filter(taxa %nin% c("perlidae", "haliplidae", "gerridae")), aes(), lwd = .1, key_glyph = "rect") +
+  geom_point() +
+  geom_point(data = . %>% filter(taxa %in% c("perlidae", "haliplidae", "gerridae")), aes(), size = 1, key_glyph = "rect") + 
+  coord_flip() +
+  ylab("Mean Contribution of Resource") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title.y = element_blank()) +
+  scale_fill_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 3),
+                    labels = c("LEAF" = "Leaf", "PERI" = "Periphyton", "ZOOP" = "Zooplankton")) +
+  scale_color_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 3),
+                     labels = c("LEAF" = "Leaf", "PERI" = "Periphyton", "ZOOP" = "Zooplankton"))  +
+  facet_wrap(~rowname)
+
+```
+
+
+We see that there do appear to be some differences between seasons of resource consumption for all three resources. However, in most cases, sample size is too small to differentiate these differences statistically. However, it does appear that periphyton consumption may be slightly higher in the fall and zooplankton consumption may be higher in the spring. Below, we z-scale all the resource contributions of all taxa (not just potential baselines) to examine if the community as a whole shows these shifts.
+
+```{r, echo = F, message = F, fig.width = 5, fig.height = 2.5 , fig.align="center", results=FALSE, warnings = FALSE}
+
+## Trying to z score all taxa to compare spring and fall
+
+simmr.seasonal.z = simmr.seasonal %>%
+  group_by( taxa, rowname) %>%
+  mutate(mean.g = mean(mean),
+         sd.g = sd(mean)) %>%
+  ungroup() %>%
+  mutate(z_score = (mean - mean.g) /sd.g)
+
+simmr.seasonal.z %>%
+  unite("ID", c(rowname, season)) %>%
+  aov(data = .,z_score ~ ID) %>%
+  TukeyHSD(.)
+
+simmr.seasonal.z.peri = simmr.seasonal.z %>% 
+  filter(rowname =="ZOOP")
+
+seasonal.levels = c("spring", "fall")
+
+wilcox.test((simmr.seasonal.z.peri %>% filter(season == "fall"))$z_score,(simmr.seasonal.z.peri %>% filter(season == "spring"))$z_score)
+
+
+simmr.seasonal.z %>%
+  ggplot(aes(x =factor(season, levels = seasonal.levels),
+             y = z_score)) +
+  geom_boxplot( aes(fill = factor(season, levels = seasonal.levels)), lwd = .1, key_glyph = "rect") +
+  geom_beeswarm(size = 2, cex = 2, alpha = .5) +
+  ylab("Z-Scored Contribution") +
+  theme_minimal(base_size = 12) +
+  scale_fill_manual("Resource", values = wes_palette("Darjeeling2", type = "discrete", n = 3),
+                    labels = c("LEAF" = "Leaf", "PERI" = "Periphyton", "ZOOP" = "Zooplankton")) +
+  facet_wrap(~rowname, labeller = labeller(rowname =  c("LEAF" = "Leaf", "PERI" = "Periphyton", "ZOOP" = "Zooplankton"))) +
+  theme(axis.title.x = element_blank(), 
+        legend.position = "none")
+
+
+```
+
+Here, we see that these trends typically follow what was observed above. Neither show significant differences between seasons but the difference in zooplankton contribution is significantly different between spring and fall where fall utilize significantly less zooplankton when you include all data from all taxa (baseline candidates or otherwise) (Wilcox test p = .01). The increase in reliance on periphyton in fall is not significant (Wilcox test p = .34). Further sampling of baseline candidates across an increased number of lakes may strengthen our ability to observe these trends.
+
+
+
+## Establishing Baselines ------------------------------
+
+
+The proposed set of baselines:
+
+
+```{r}
+
+
+data.frame(taxon = c("Heptageniidae", "Zooplankton"), 
+            capture_method = c("searches", "zooplankton tow"), 
+           baseline = c("Benthic", "Pelagic")) %>%
+  column_to_rownames(var = "baseline") %>%
+  t() %>% as.data.frame() 
+
+
+
+```
+
+
+```{r}
+
+simmr.combined = simmr.full %>% 
+  filter(rowname %in% c("LEAF", "ZOOP", "PERI")) %>%
+  mutate(rowname = case_when(rowname %in% c("LEAF", "PERI") ~ "BENTHIC", 
+                             rowname == "ZOOP" ~ "PELAGIC")) %>%
+  group_by(community, taxa, ORDER, rowname) %>%
+  summarize(total.cont = sum(mean)) %>%
+  ungroup() %>%
+  group_by(taxa, ORDER, rowname) %>%
+  mutate(mean.cont = mean(total.cont)) %>%
+  filter(mean.cont > .55,
+         taxa %in% c(primary.consumers$FAMILY, traditional$FAMILY)) 
+
+s.c.family = simmr.combined %>%
+  ungroup() %>% select(ORDER, taxa) %>%
+  arrange(ORDER) %>% select(taxa) %>% unique()
+
+
+
+simmr.combined %>%
+  ggplot(aes(y = factor(taxa, levels = s.c.family$taxa), x= total.cont, fill = ORDER)) + 
+  geom_boxplot(key_glyph = "rect") +
+  geom_point(key_glyph = "rect") +
+  theme_minimal() + 
+  theme(axis.title.y = element_blank()) + 
+  scale_fill_manual("Order", values = wes_palette("Darjeeling1", type = "continuous", n = 9)) +
+  xlab("Benthic Contribution")
+
+  
+  
+
+```
+
+
+
+
+
+
+
+## Heptageniidae site differences within a lake
+
+```{r}
+
+inverts = data.iso %>% left_join(sample, by = c("ISO_YSAMP_N")) %>%
+  left_join(taxon_frame) %>%
+  filter(WATER != "LML") %>%
+  mutate(D15N = as.numeric(D15N),
+         D13C = as.numeric(D13C)) %>%
+  #filter(CATEGORY == "INVERT") %>%
+  filter(WATER %in% fish.waters)
+
+inverts %>% 
+  mutate(season = case_when(MONTH < 8 ~ "spring", MONTH > 7 ~ "fall")) %>%
+  filter(#FAMILY == "heptageniidae",
+         GROUP == "INSECT",
+         WATER %in% c("DTL", "MSL"), 
+         season %in% c("spring")) %>%
+  group_by(WATER) %>%
+  mutate(SITE_N = as.numeric((as.factor(SITE_N)))) %>%
+  ggplot(aes(x = D13C, y = D15N, 
+             
+             col = as.factor((SITE_N))
+         )) + 
+  geom_point(aes(), size = 3) + 
+  stat_ellipse() +  
+   facet_wrap(~WATER, labeller = labeller(WATER = c("DTL" = "Dart Lake", "MSL" = "Moss Lake"))) +
+  theme_minimal(base_size = 14) + 
+  scale_color_manual("Site", values = wes_palette("Moonrise2", type = "discrete", n = 4))
+
+
+
+
+# For report
+inverts %>% 
+  mutate(season = case_when(MONTH < 8 ~ "spring", MONTH > 7 ~ "fall")) %>%
+  filter(#FAMILY == "heptageniidae",
+        GROUP == "INSECT",
+         season == "fall") %>%
+  group_by(WATER) %>%
+  mutate(SITE_N = as.numeric((as.factor(SITE_N)))) %>%
+  ggplot(aes(x = D13C, y = D15N, 
+             
+             col = as.factor((SITE_N))
+         )) + 
+  geom_point( size = 3) + 
+  stat_ellipse() +  
+  facet_wrap(~WATER) + 
+  theme_minimal(base_size = 14) + 
+  
+  scale_color_manual("Site", values = wes_palette("Moonrise2", type = "discrete", n = 2))
+ 
+
+
+# For report
+inverts %>% 
+  mutate(season = case_when(MONTH < 8 ~ "spring", MONTH > 7 ~ "fall")) %>%
+  filter(#FAMILY == "heptageniidae",
+        GROUP == "INSECT",
+         season == "spring") %>%
+  group_by(WATER) %>%
+  mutate(SITE_N = as.numeric((as.factor(SITE_N)))) %>%
+  ggplot(aes(x = D13C, y = D15N, 
+             
+             col = as.factor((SITE_N))
+         )) + 
+  geom_point( size = 3) + 
+  stat_ellipse() +  
+  facet_wrap(~WATER, scales = "free") + 
+  theme_minimal(base_size = 14) + 
+  
+  scale_color_manual("Site", values = wes_palette("Moonrise2", type = "discrete", n = 4))
+ 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

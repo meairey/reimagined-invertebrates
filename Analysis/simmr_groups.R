@@ -8,14 +8,25 @@ set.seed(123)
 
 load(file = "Data/RData/mixtures.RData")
 load(file = "Data/RData/baselines.RData")
+load(file = "Data/RData/taxon_frame.RData")
 
 
 
+taxon_frame = taxon_frame %>%
+  rename(ORDER = ORDER..OR.ABOVE.)
 
 
+load(file = "Data/RData/richness_cluster.RData")
+richness = richness %>% unite("community.name", c(WATER, season), sep = ".")
+
+mixtures %>% filter(GROUP == "BIVALVE")
 
 
 #### ------------------
+
+## Checking something
+
+
 
 ## With groups
 
@@ -25,17 +36,34 @@ plot(simmr_in)
 simmr_out = simmr_mcmc(simmr_in)
 summary(simmr_out, type = "diagnostics")
 post_pred <- posterior_predictive(simmr_out)
+plot(simmr_out)
 
 
-
+mixtures %>% filter(FAMILY == "unionidae")
 
 ## For loop through communities 
+community.legend = mixtures %>% 
+  select(community.name, community) %>%
+  unique()
 
+community.legend
+
+simmr.full %>% filter(taxa == "unionidae")
+
+
+mixtures %>% filter(FAMILY == "unionidae") %>%
+  select(community.name, community)
 
 output.list = list()
 
 for(i in 1:length(unique(mixtures$community))){
   
+
+  
+  community.name =  (mixtures %>% 
+    filter(community == i) %>% 
+    select(community.name) %>% 
+    unique())$community.name
   
   test.mix = mixtures %>% filter(community == i) %>%
     select(group.name,D13C, D15N) %>%
@@ -72,7 +100,7 @@ for(i in 1:length(unique(mixtures$community))){
     
     
     output.list[[i]] = taxa.output %>%
-      mutate(community = unique(mixtures$community.name)[i])
+      mutate(community = community.name)
  
     
   
@@ -86,17 +114,26 @@ output.list.clean = output.list[-which(is.na(output.list))]
 
 simmr.full = Reduce(full_join, output.list.clean)
 
-save(simmr.full, file = "Data/RData/simmr_full.RData")
 
+simmr.full %>% filter(taxa == "unionidae")
 
-family.order = c("viviparidae", "lymnaeidae","planorbidae", "polycentropodidae", "chironomidae",
-                 "macromiidae", "aeshnidae","libellulidae", "gomphidae", "corduliidae" , "coenagrionidae", "leptophlebiidae","heptageniidae", "ephemerellidae","talitridae", "elmidae")
+#save(simmr.full, file = "Data/RData/simmr_full.RData")
 
 load(file = "Data/RData/simmr_full.RData")
 
 
+family.order = c("viviparidae", "lymnaeidae","planorbidae","sphaeriidae", "unionidae", "polycentropodidae", "chironomidae",
+                 "macromiidae", "aeshnidae","libellulidae", "gomphidae", "corduliidae" , "coenagrionidae", "leptophlebiidae","heptageniidae", "ephemerellidae","talitridae", "elmidae")
+
+
+
+
 simmr.full = simmr.full %>% 
-  left_join(taxon_frame, by = c("taxa" = "FAMILY"))
+  left_join(taxon_frame %>% 
+              select(ORDER, FAMILY) %>% 
+              filter(FAMILY != "unidentified") %>%
+              unique(), by = c("taxa" = "FAMILY")) 
+
 
 
 
@@ -119,9 +156,10 @@ simmr.full %>%
              y = mean, 
              fill =factor(ORDER, levels = order_levels))) + 
   geom_boxplot() +
+  geom_point() +
   coord_flip() +
   ylab("Mean Contribution of Zooplankton") +
-  theme_minimal() +
+  theme_minimal(base_size = 20) +
   theme(axis.title.y = element_blank())  +
   scale_fill_manual("Order", values = order_colors) 
 
@@ -149,7 +187,7 @@ simmr.full %>%
 ## Contribution of periphyton to taxa
 simmr.full %>%
   filter(rowname == "PERI",
-         taxa %nin% c("INSECT", "SNAIL"),
+         taxa %nin% c("INSECT"),
          taxa %in% family.order) %>%
   group_by(taxa) %>%
   mutate(count = n()) %>%
@@ -162,7 +200,7 @@ simmr.full %>%
   geom_point() + 
   coord_flip() +
   ylab("Mean Contribution of Periphyton") +
-  theme_minimal() +
+  theme_minimal(base_size = 14) +
   theme(axis.title.y = element_blank()) +
   scale_fill_manual("Order", values = order_colors) 
 
@@ -182,7 +220,7 @@ taxa.simmr = simmr.full %>%
   left_join(richness, by = c("community" = "community.name")) %>%
   filter(rowname == "PERI", 
          taxa %in% family.order) %>%
-  select(-GENUS, -TAXON) %>%
+  #select(-GENUS, -TAXON) %>%
   unique()
 
 taxa.simmr %>%
@@ -210,6 +248,7 @@ cor( taxa.simmr$thermo_depth, taxa.simmr$sechi.depth)
 
 
 
+
 ## trophic position -- trying to mix TP from different source contributions
 
 baseline.mixtures = simmr.full %>% 
@@ -226,6 +265,7 @@ baselines.wide = baselines %>%
   select(community.name, group.name, mean_n) %>%
   pivot_wider(names_from = group.name, values_from = mean_n)
 
+
 trophic.position = mixtures %>%
   select(community.name, GROUP, FAMILY, D15N, D13C) %>%
   left_join(baseline.mixtures, by = c( "community.name" ="community", "FAMILY" = "taxa"  )) %>%
@@ -240,12 +280,21 @@ trophic.position = mixtures %>%
   select(community.name, GROUP, FAMILY, D15N, D13C, trophic_position_weighted, trophic_position) %>%
   na.omit() %>%
   filter(FAMILY %nin% c("unidentified", "terrestrial", "degraded")) %>%
-  left_join(taxon_frame %>% select(ORDER, FAMILY) %>% unique())
+  left_join(taxon_frame %>% select(ORDER, FAMILY) %>% unique()) %>%
+  ungroup() %>%
+  group_by(FAMILY) %>%
+  mutate(mean_TP = mean(trophic_position_weighted))
 
+save(trophic.position, file = "Data/RData/trophic.position.RData")
+load(file = "Data/RData/trophic.position.RData")
 
-TP.family = trophic.position %>% select(ORDER, FAMILY) %>%
+TP.family = trophic.position %>% 
+  ungroup() %>%
+  select(ORDER, FAMILY) %>%
   arrange(ORDER) %>% select(FAMILY) %>% unique()
-TP.order = trophic.position %>% select(ORDER, FAMILY) %>%
+TP.order = trophic.position %>% 
+  ungroup() %>%
+  select(ORDER, FAMILY) %>%
   arrange(ORDER) %>% select(ORDER) %>% unique()
 
 
@@ -260,7 +309,7 @@ trophic.position %>%
              fill = factor(ORDER, TP.order$ORDER))) + 
   geom_boxplot() +
   geom_point(alpha = .2) + 
-  theme_minimal() +
+  theme_minimal(base_size = 20) +
   scale_fill_manual("Order", values = wes_palette("Darjeeling1", type = "continuous", n = 9)) +
   xlab("Trophic Position") +
   theme(axis.title.y = element_blank()) +
@@ -299,7 +348,22 @@ tpc %>%
   geom_point() +
   geom_smooth(method = "lm")
 
+## What about max trophic position - aka longer food chains within different lakes?
 
+tpc %>%
+  filter(GROUP != "CRAY") %>%
+  group_by(community.name) %>%
+  slice_max(trophic_position_weighted) %>%
+  ggplot(aes(y = trophic_position_weighted, x =depth.5mgL)) + 
+  geom_point() + 
+  geom
+
+
+tpc.max = tpc %>%
+  filter(GROUP != "CRAY", ) %>%
+  group_by(community.name) %>%
+  slice_max(trophic_position_weighted) 
+cor.test(tpc.max$trophic_position_weighted, tpc.max$depth.5mgL, method = "spearman")
 ## Trophic position across clusters
 
 tpc %>%
@@ -312,15 +376,17 @@ tpc %>%
   theme_minimal() +
   facet_wrap(~FAMILY, scales = "free_y") 
 
-## Cluster 1 lakes have higher trophic positions than cluster 1
+## Cluster 1 lakes have higher trophic positions than cluster 2
 tpc %>% 
   group_by(FAMILY, community.name) %>%
   mutate(family_TP = mean(trophic_position_weighted)) %>%
   select(FAMILY, community.name, family_TP, cluster) %>%
   unique() %>%
+  ungroup() %>%
+  #filter(cluster %in% c(1,2)) %>%
   #glm(data = ., .$family_TP ~ .$cluster ) %>% summary()
   #aov(data = ., .$family_TP ~ .$cluster) %>% summary()
-  TukeyHSD(data = ., aov(data = ., .$family_TP ~ .$cluster)) ## # vs. 1 is significantly different
+  #TukeyHSD(data = ., aov(data = ., .$family_TP ~ .$cluster)) ## # vs. 1 is significantly different
   ggplot(aes(x = cluster, y= family_TP, fill = cluster)) +
   theme_minimal() + 
   geom_boxplot() +
@@ -328,7 +394,56 @@ tpc %>%
   ylab("Family Trophic Level") + 
   xlab("Cluster") +
   scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) +
-  theme(legend.position = "none")
+  theme(legend.position = "none") 
+
+
+
+## Now doing the same thing above but scaled
+
+tpc %>% 
+  group_by(FAMILY, community.name) %>%
+  mutate(family_TP = mean(trophic_position_weighted)) %>%
+  select(FAMILY, community.name, family_TP, cluster) %>%
+  unique() %>%
+  ungroup() %>%
+  group_by(FAMILY) %>%
+  mutate(family_TP = scale(family_TP)) %>%
+  ungroup() %>%
+  #filter(cluster %in% c(1,2)) %>%
+  #glm(data = ., .$family_TP ~ .$cluster ) %>% summary()
+  #aov(data = ., .$family_TP ~ .$cluster) %>% summary()
+  #TukeyHSD(data = ., aov(data = ., .$family_TP ~ .$cluster)) ## # vs. 1 is significantly different
+  ggplot(aes(x = cluster, y= family_TP, fill = cluster)) +
+  theme_minimal() + 
+  geom_boxplot() +
+  geom_point() +
+  ylab("Family Trophic Level") + 
+  xlab("Cluster") +
+  scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) +
+  theme(legend.position = "none") 
+
+
+
+
+## Testing if there are differences within taxa between clusters
+
+tpc %>% 
+  filter(cluster != 3) %>%
+  ungroup() %>%
+  group_by( FAMILY) %>%
+  mutate(count = length(unique(cluster))) %>%
+  select(count, everything()) %>%
+  filter(count > 1) %>%
+
+  select(FAMILY, community.name, trophic_position_weighted, cluster) %>%
+  unique() %>%
+  ungroup() %>%
+  group_by(FAMILY) %>%
+  mutate(trophic_position_weighted = scale(trophic_position_weighted)) %>%
+  ggplot(aes(x = cluster, y = trophic_position_weighted)) + 
+  geom_boxplot() + 
+  geom_point() #+ 
+  facet_wrap(~cluster)
   
   
 ## Functional feeding group by trophic position 
@@ -396,3 +511,14 @@ for (fg in unique(presence_absence_data$FG)) {
                family = binomial)
   glm_results[[fg]] <- summary(model)
 }
+
+##taxa %in% c("talitridae"),
+simmr.full %>% filter( rowname == "PERI") %>%
+  left_join(richness, by = c("community" = "community.name" )) %>%
+  #lm(data = ., mean ~ DOC.1) %>% summary()
+
+  ggplot(aes(y = mean,x = DOC.1 )) + 
+  geom_point() + 
+  geom_smooth(method = "lm") + 
+  facet_wrap(~taxa, scales = "free_y")
+
