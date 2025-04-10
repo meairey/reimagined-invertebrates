@@ -55,7 +55,10 @@ nmds.dat ## Frame is presence absence, sites are rows. columns are families.
 # Run the NMDS using Bray-Curtis distance ------------------------------
 #nmds <- metaMDS(nmds.dat, distance = "jaccard", trymax = 100) ## Do not run this again just load the data out of file below
 
-#save(nmds, file = "Data/RData/nmds.RData")
+#save(nmds, file = "Data/RData/nmds.RData") ## Do not run this again just load the data out of the file below
+
+
+
 load(file = "Data/RData/nmds.RData")
 ## K means clustering of lakes by community
 # extract scores from NMDS
@@ -109,17 +112,46 @@ species = as.data.frame(as.matrix(nmds$species)) %>%
   rownames_to_column(var = "ID") 
 
 ## View sites and clusters
-sites %>% ggplot(aes(x = MDS1, 
+
+library(ggrepel)
+ggplot() +
+  
+  geom_point(data= sites, aes(x = MDS1, 
+                     y = MDS2, 
+                     col = cluster),key_glyph = "rect") +
+  stat_ellipse(data = sites, aes(x = MDS1, 
                      y = MDS2, 
                      col = cluster, 
-                     label = ID)) + 
-  theme_minimal(base_size = 10) +
-  stat_ellipse(level = .9, alpha = .8) +
-  geom_text(key_glyph = "rect") +
+                     ),level = .9, alpha = .8) +
   labs(col = "Cluster") + 
   xlim(-1.5, 1.5) +
-  scale_color_manual(values = wes_palette("Royal2")[c(3,1,5)]) 
+  scale_color_manual(values = wes_palette("Royal2")[c(3,1,5)]) +
+  geom_text_repel(data = species %>%
+              filter(ID %in% simper.families.important$family), aes(x = MDS1, y = MDS2, label = ID)) + 
+  theme_minimal(base_size = 12)
 
+
+## Convex Hulls 
+# Compute the convex hull for each cluster
+hull_data <- sites %>%
+  group_by(cluster) %>%
+  slice(chull(MDS1, MDS2)) %>%
+  ungroup()
+
+nmds.labels = c("Shallow thermocline", "Diverse, deep thermocline", "Deep thermocline")
+# Plot with convex hulls
+ggplot(sites, aes(x = MDS1, y = MDS2)) +
+  geom_point(aes(color = factor(cluster)), size = 2) +
+  geom_polygon(data = hull_data, aes(fill = factor(cluster)), alpha = 0.3, color = NA) +
+  labs(color = "Cluster", fill = "Cluster") +
+  theme_minimal() +
+  theme(legend.position = "right") + 
+    geom_text_repel(data = species %>%
+              filter(ID %in% simper.families.important$family), aes(x = MDS1, y = MDS2, label = ID)) + 
+  theme_minimal(base_size = 14) +
+  scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)], labels = nmds.labels) +
+  scale_color_manual(values = wes_palette("Royal2")[c(3,1,5)], labels = nmds.labels) 
+  
 
 
 ## PERMANOVA ---------------------------------------------------------
@@ -134,7 +166,8 @@ adonis2(distance_matrix~site_scores$cluster)
  
 ## Consider separating this out to remove taxa that occur in all clusters or taxa that occur in neither of the paired clusters
 
-
+### You should go through and compare the dS across the lat/long gradient?
+#### You should also go through and see if you can compare the d15N to the d2H of the invertebrates to see if there is a realtinship between the two... trophic fractionation of d2H
 
 ## SIMPER analysis  --------------------------------------------------
 
@@ -217,7 +250,7 @@ nmds.dat %>%
   mutate(count = 1:n()) %>%
   ggplot(aes(x = prop.clust , y = reorder(name, -count), fill = cluster)) + 
   geom_bar(stat = "identity") + 
-    scale_fill_manual("Cluster", values = wes_palette("Royal2")[c(3,1,5)], labels = c("Warm - High DOC", "Cool - Low DOC", "Cool - Mod DOC")) +
+    scale_fill_manual("Cluster", values = wes_palette("Royal2")[c(3,1,5)], labels = nmds.labels) +
   theme_minimal(base_size = 14) +
   geom_point(aes(y = name, color = ORDER), size = 3, x = -0.05, shape = "circle",inherit.aes = FALSE) +
   scale_color_manual("Order", values = wes_palette("Darjeeling1",
@@ -308,101 +341,6 @@ write.csv(taxa_presence, file = "Data/CSVs/taxa.presence.csv")
 
 
 
-## Assignning taxa to clusters
-taxa.assignments = nmds.dat.cluster %>% 
-  ungroup() %>%
-  select(season, cluster, everything()) %>%
-  pivot_longer(4:49) %>%
-  group_by(cluster) %>%
-  unite("ID", c(season, WATER)) %>%
-  mutate(total_lakes = length(unique(ID))) %>%
-  ungroup() %>%
-  select(cluster, name, total_lakes, value, ID) %>%
-  unique() %>%
-  group_by(cluster, name, total_lakes) %>%
-  summarize(sum = sum(value)) %>%
-  mutate(proportion.lakes = sum/total_lakes) %>%
-  ungroup() %>%
-  group_by(name) %>%
-  filter(proportion.lakes == max(proportion.lakes)) %>% 
-  select(cluster, name,proportion.lakes) %>%
-  rename(FAMILY = name)
-
-taxa.assignments %>% filter(cluster ==1, sum>0)
-
-## Table on which taxa belong to which cluster
-taxa.assign = taxa.assignments %>%
-  left_join(taxon_frame %>% select(ORDER, FAMILY) %>% unique()) %>%
-  arrange(cluster, ORDER)
-save(taxa.assign, file = "Data/RData/taxa.clusters.RData", row.names = F)
-
-
-## Which species are pulling the NMDS 
-species %>% 
-  left_join(taxa.assignments, by = c("ID" = "FAMILY")) %>%
-  
-  ggplot(aes(x = MDS1, y = MDS2,  col = cluster)) + 
-  geom_text(aes(label = ID), max.overlaps = 40) +
-  stat_ellipse() + 
-  theme_minimal() 
-
-## Trying to labels these
-
-counts <- taxa.assignments %>%
-  left_join(taxon_frame %>% select(FAMILY, ORDER) %>% unique)  %>%
- # rename(ORDER = ORDER..OR.ABOVE.)%>%
-  select(cluster, FAMILY, ORDER) %>%
-  unique() %>%
-  group_by(cluster, ORDER) %>%
-  summarise(count = n()) %>%
-  ungroup()
-
-# Then, plot the bar graph with text labels !! these are for the taxa assigned to which cluster. I think its not atually showing which families show up in other clusters
-ggplot(counts, aes(fill = ORDER, x = cluster, y = count)) +
-  geom_bar(stat = "identity") +  # Change to stat = "identity" since counts are pre-calculated
-  geom_text(aes(label = ORDER), position = position_stack(vjust = 0.5), size = 3) + # Add text labels
-  theme_minimal() + 
-  scale_fill_manual(values = wes_palette("Darjeeling1", type = "continuous", n = 14)) +
-  ylab("Number of Families") +
-  theme(legend.position = "none") +
-  xlab("Cluster")
-
-
-## Trying to get which taxa are in which cluster
-
-
-cluster.families = nmds.dat.cluster %>% 
-  ungroup() %>%
-  select(season, cluster, everything()) %>%
-  pivot_longer(4:49) %>%
-  filter(value ==1) %>%
-  group_by(cluster) %>%
-  unite("ID", c(season, WATER)) %>% 
-  select(cluster, name) %>%
-  unique() %>%
-  left_join(taxon_frame %>% select(FAMILY, ORDER) %>% unique(), 
-            by = c("name" = "FAMILY")) %>%
-  arrange(cluster, ORDER) %>%
-  rename(FAMILY = name)
-cluster.families %>% write.csv(., file = "Data/CSVs/taxa.clusters.csv", row.names = F)
-
-counts <- cluster.families %>%
-  select(cluster, FAMILY, ORDER) %>%
-  unique() %>%
-  group_by(cluster, ORDER) %>%
-  summarise(count = n()) %>%
-  ungroup()
-
-
-counts %>% ggplot(aes(x = cluster, fill = ORDER, y = count)) + 
-  geom_bar(stat = "identity") +
-  geom_text(aes(label = ORDER), position = position_stack(vjust = 0.5), size = 3) +
-  theme_minimal() + 
-  scale_fill_manual(values = wes_palette("Darjeeling1", type = "continuous", n = 14)) +
-  ylab("Number of Families") +
-  theme(legend.position = "none") +
-  xlab("Cluster")
-
 
 ## Chemistry ---------------------------------------------------------------
 
@@ -492,7 +430,8 @@ table = table %>% na.omit() %>% as.data.frame() %>%
          `3_2.p` = round(as.numeric(`3_2.p`), digits = 3),
          `3_1.p` = round(as.numeric(`3_1.p`), digits = 3),
          `2_1.p` = round(as.numeric(`2_1.p`), digits = 3)) %>%
-  mutate(across(everything(), ~ ifelse(. < 0.001, "< 0.001", .)))
+  mutate(across(everything(), ~ ifelse(. < 0.001, "< 0.001", .))) %>%
+  as.data.frame()
 
 
 table 
@@ -501,10 +440,10 @@ table
 
 ## Visualize just the significant factors '
 richness.simple$variable_level <- factor(richness.simple$metric,
-                                         levels = c("ANC", "CA", "SIO2","NO3",
+                                         levels = c("ANC" "CA", "SIO2","NO3",
                                                     "TotalP","DOC.1", "Elevation",
                                                     "depth.5mgL", "temp.5mgL",
-                                                    "thermo_depth", "richness"))
+                                                    "thermo_depth", "richness", "sechi.depth"))
 
 
 aov_variable_names = c("ANC" = "ANC (µeq/L)", "CA" = "Ca (mg/L)", "SIO2" = "SiO2 (mg/L)",
@@ -517,18 +456,19 @@ aov_variable_names = c("ANC" = "ANC (µeq/L)", "CA" = "Ca (mg/L)", "SIO2" = "SiO
 
 
 richness.simple %>%
+  select(-variable_level) %>%
   na.omit() %>%
   filter(metric %in% unique(table$metric)) %>%
 
   unique() %>%
-  mutate(metric = factor(metric, levels = c("CA", "NO3","SIO2", 
-                                               "Elevation", "max_depth", "richness",
-                                               "depth.5mgL", "sechi.depth", "temp.5mgL", "thermo_depth"))) %>%
+ mutate(metric = factor(metric, levels = c("CA", "NO3","SIO2", 
+                                               "Elevation","max_depth" ,
+                                               "depth.5mgL", "sechi.depth", "temp.5mgL", "thermo_depth", "richness"))) %>%
   ggplot(aes(x = cluster, y = values, fill = cluster)) + 
   geom_boxplot(alpha = .85) + 
   theme_minimal(base_size = 12) +
 
-  facet_wrap(~metric, scales = "free_y", labeller = labeller(variable_level = aov_variable_names), ncol = 3) +
+  facet_wrap(~metric, scales = "free_y", ncol = 3) +
   scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) +
   theme(legend.position = "none") + 
   xlab("Cluster") +

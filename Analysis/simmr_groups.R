@@ -321,7 +321,7 @@ trophic.position %>%
 ## Comparing the calculation of trophic position
 
 trophic.position %>%
-  left_join(richness) %>%
+ # left_join(richness) %>%
   group_by(FAMILY) %>% 
   mutate(count = n()) %>%
   filter(count > 5) %>%
@@ -386,7 +386,7 @@ tpc %>%
   #filter(cluster %in% c(1,2)) %>%
   #glm(data = ., .$family_TP ~ .$cluster ) %>% summary()
   #aov(data = ., .$family_TP ~ .$cluster) %>% summary()
-  #TukeyHSD(data = ., aov(data = ., .$family_TP ~ .$cluster)) ## # vs. 1 is significantly different
+  TukeyHSD(data = ., aov(data = ., .$family_TP ~ .$cluster)) ## # vs. 1 is significantly different
   ggplot(aes(x = cluster, y= family_TP, fill = cluster)) +
   theme_minimal() + 
   geom_boxplot() +

@@ -96,7 +96,7 @@ data = data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
   as.data.frame() %>%
   select(iso1, iso2, group, community, group.name, community.name) 
 
-save(data, file = "Data/RData/isotope_data.RData")
+#save(data, file = "Data/RData/isotope_data.RData")
 load(file = "Data/RData/isotope_data.RData")
 
 siber.data = data %>% select(-group.name, -community.name)
