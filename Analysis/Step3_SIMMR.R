@@ -8,12 +8,14 @@ library(tidyverse)
 taxon_frame = read.csv("Data/CSVs/taxon_frame.csv") %>% unique()# rename column
 ## Load in isotope measurement file
 data.iso =  read.csv("../1.clean_isotope/iso_measurement.csv") %>%
-  mutate(D13C = as.numeric(D13C))
+  mutate(D13C = as.numeric(D13C)) #%>%
   mutate(D13C = case_when(CATEGORY %nin% c("ALGA", "PLANT") ~ as.numeric(D13C) - 3.32 + .99 * (PER_C / PER_N),
                           CATEGORY %in% c("ALGA", "PLANT") ~ as.numeric(D13C))) ## lipid correction factor
-
 ## Read in isotope sample file
-sample = read.csv("Data/CSVs/isotope_sample.csv")
+sample = read.csv("../1.clean_isotope/isotope_sample.csv")
+
+data.iso %>%
+  filter
 
 ## Create the data frame for the baselines
 baselines =  data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
@@ -47,17 +49,44 @@ baselines =  data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
   select(community, community.name, group.name, mean_c, mean_n, sd_c, sd_n)
 
 
+data.iso %>% 
+  filter(GROUP == "ZOOP", 
+         grepl( "SEL", ISO_YSAMP_N))
+
 ## Adding in zooplankton samples that average across both spring and fall or use spring and fall data
 ## adding the averaged information for HTL zoop in bc not enough 
-baselines[24, 1] = 8; baselines[24, 2] = "HTL.fall"; baselines[24,3] = "ZOOP"
-baselines[24,4] = -33.94; baselines[24,5] = 6.676667; baselines[24,6] = 1.105908
-baselines[24,7] = 2.206362
+HTL.zoop = data.iso %>% 
+  filter(GROUP == "ZOOP", 
+          grepl( "HTL", ISO_YSAMP_N)) %>%
+  mutate(SEASON = c("fall", "spring", "spring"))
+
+baselines[24, 1] = 18; baselines[24, 2] = "HTL.fall"; baselines[24,3] = "ZOOP";
+baselines[24,4] = (HTL.zoop %>% filter(SEASON == "fall"))$D13C;
+baselines[24,5] = (HTL.zoop %>% filter(SEASON == "fall"))$D15N;
+baselines[24,6] = sd(HTL.zoop$D13C); 
+
+baselines[24,7] = sd(HTL.zoop$D15N)
+
+
+#baselines[24, 1] = 8; baselines[24, 2] = "HTL.fall"; baselines[24,3] = "ZOOP"
+#baselines[24,4] = -33.94; baselines[24,5] = 6.676667; baselines[24,6] = 1.105908
+#baselines[24,7] = 2.206362
 
 
 ## adding the averaged information for SEL zoop in bc not enough 
-baselines[51, 1] = 18; baselines[51, 2] = "SEL.fall"; baselines[51,3] = "ZOOP"
-baselines[51,4] = -31.1; baselines[51,5] = 6.60; baselines[51,6] = 0.735
-baselines[51,7] = 2.84
+
+sel.zoop = data.iso %>% 
+  filter(GROUP == "ZOOP", 
+          grepl( "SEL", ISO_YSAMP_N)) %>%
+  mutate(SEASON = c("fall", "spring", "spring"))
+
+
+baselines[51, 1] = 18; baselines[51, 2] = "SEL.fall"; baselines[51,3] = "ZOOP";
+baselines[51,4] = (sel.zoop %>% filter(SEASON == "fall"))$D13C;
+baselines[51,5] = (sel.zoop %>% filter(SEASON == "fall"))$D15N;
+baselines[51,6] = sd(sel.zoop$D13C); 
+
+baselines[51,7] = sd(sel.zoop$D15N)
 
 
 
@@ -65,6 +94,20 @@ baselines[51,7] = 2.84
 ## saving the baseline frame
 save(baselines, file = "Data/RData/baselines.RData")
 load(file = "Data/RData/baselines.RData")
+
+
+  
+
+write.csv(baselines %>%
+  pivot_wider(
+    names_from = group.name,
+    values_from = c(mean_c, sd_c, mean_n, sd_n) 
+  ) %>%
+    select(community.name, 
+           mean_c_LEAF, sd_c_LEAF, mean_n_LEAF, sd_n_LEAF,
+           mean_c_PERI, sd_c_PERI, mean_n_PERI, sd_n_PERI,
+           mean_c_ZOOP, sd_c_ZOOP, mean_n_ZOOP, sd_n_ZOOP),file = "Data/CSVs/baselines.csv", 
+  row.names = F)
 
 # visualize the resources
 baselines %>% separate(community.name, into = c("water", "season")) %>%

@@ -1,3 +1,4 @@
+set.seed(123)  # For reproducibility
 library(tidytext)
 library(vegan)
 library(tidyverse)
@@ -5,8 +6,6 @@ library(ggrepel)
 library(ggplot2)
 library(wesanderson)
 `%nin%` = Negate(`%in%`)
-set.seed(123)  # For reproducibility
-set.seed(695)
 
 # Load
 load(file = "Data/RData/FullData.RData")
@@ -15,14 +14,36 @@ load(file = "Data/RData/FullData.RData")
 full %>%
   summarize(total = sum(TOTAL_N))
   
+full %>% group_by(WATER) %>%
+  filter(GEAR %in% c("DPN", "SHS"),
+         MONTH == "SPRING") %>%
+  summarize(length(unique(SITE_N)))
+
+full %>% 
+  filter(GEAR %in% c("DPN", "SHS"), 
+         MONTH == "SPRING", 
+         WATER %in% c("DTL", "MSL")) %>% 
+  ungroup() %>% 
+  group_by(WATER, GEAR, SITE_N, FAMILY) %>%
+  summarize(total_n = sum(TOTAL_N)) %>%
+  ungroup() %>%
+  group_by(WATER, GEAR, FAMILY) %>%
+  summarize(freq = n()) %>%
+  ggplot(aes(y = freq)) + 
+  geom_histogram() + 
+  facet_wrap(~WATER + GEAR)
+
+## Full
 ## create the NMDS data frame ------------------
 
 ## Families included 
 unique_families = full %>% select(FAMILY, GENUS) %>%  unique() 
-write.csv(file = "Data/CSVs/family.csv", unique_families, row.names = F)
+#write.csv(file = "Data/CSVs/family.csv", unique_families, row.names = F)
 
 ## NMDS data
-nmds.dat = full %>% select(MONTH, YSAMP, SITE_N, WATER, ORDER..OR.ABOVE., FAMILY) %>%
+nmds.dat = full %>% 
+  filter(MONTH =="FALL") %>%
+  select(MONTH, YSAMP, SITE_N, WATER, ORDER..OR.ABOVE., FAMILY) %>%
   unique() %>%
   filter(FAMILY %nin% c("unidentified", "degraded","terrestrial")) %>%
   mutate(SITE_N = str_replace_all(SITE_N, " ", ""),
@@ -34,11 +55,12 @@ nmds.dat = full %>% select(MONTH, YSAMP, SITE_N, WATER, ORDER..OR.ABOVE., FAMILY
   unique() %>%
   pivot_wider(names_from = FAMILY, values_from = pres ) %>%
   mutate_all(~replace(., is.na(.), 0)) %>%
-  column_to_rownames(var = "ID")
+  column_to_rownames(var = "ID") 
 
-save(file = "Data/RData/nmdsDat.RData", nmds.dat)
+#save(file = "Data/RData/nmdsDat.RData", nmds.dat)
 
 order_matrix = full %>%
+  filter(MONTH == "FALL") %>%
   select(MONTH, YSAMP, SITE_N, WATER, ORDER..OR.ABOVE., FAMILY) %>%
   unique() %>%
   filter(FAMILY %nin% c("unidentified", "degraded","terrestrial")) %>%
@@ -94,9 +116,9 @@ kmeans_result <- kmeans(site_scores, centers = k)
 
 # Add the cluster results to the site_scores data frame
 site_scores$cluster <- as.factor(kmeans_result$cluster)
-save(file = "Data/RData/site_scores.RData", site_scores)
-load(file = "Data/RData/site_scores.RData")
-load(file = "Data/RData/simmr.output.RData")
+#save(file = "Data/RData/site_scores.RData", site_scores)
+#load(file = "Data/RData/site_scores.RData")
+#load(file = "Data/RData/simmr.output.RData")
 cluster.mat = site_scores %>% rownames_to_column(var = "ID") %>%
   separate(ID, into = c("season", "WATER")) %>%
   mutate(season = tolower(season)) %>% 
@@ -114,21 +136,6 @@ species = as.data.frame(as.matrix(nmds$species)) %>%
 ## View sites and clusters
 
 library(ggrepel)
-ggplot() +
-  
-  geom_point(data= sites, aes(x = MDS1, 
-                     y = MDS2, 
-                     col = cluster),key_glyph = "rect") +
-  stat_ellipse(data = sites, aes(x = MDS1, 
-                     y = MDS2, 
-                     col = cluster, 
-                     ),level = .9, alpha = .8) +
-  labs(col = "Cluster") + 
-  xlim(-1.5, 1.5) +
-  scale_color_manual(values = wes_palette("Royal2")[c(3,1,5)]) +
-  geom_text_repel(data = species %>%
-              filter(ID %in% simper.families.important$family), aes(x = MDS1, y = MDS2, label = ID)) + 
-  theme_minimal(base_size = 12)
 
 
 ## Convex Hulls 
@@ -223,13 +230,15 @@ simper.cont1 = simper_df %>%
 simpr.families = c(simper.families.important$family, simper.cont1$family) %>%
   unique()
 
+taxon_frame = read.csv("Data/CSVs/taxon_frame.csv")
+
 nmds.dat %>%
   rownames_to_column(var = "ID") %>%
   left_join(cluster.mat %>% 
               mutate(season = toupper(season)) %>%
               unite("ID", c(season, WATER))) %>%
   select(ID, cluster, everything()) %>%
-  pivot_longer(ceratopogonidae:unionidae) %>%
+  pivot_longer(ceratopogonidae:lymnaeidae) %>%
   ungroup() %>%
   filter(value ==1) %>%
   group_by(cluster) %>%
@@ -273,7 +282,8 @@ load("Data/RData/chem_data.RData")
 chemistry = chemistry %>%
   rename(depth.5mgL = min_depth,
          temp.5mgL = min_temp) %>%
-  left_join(cluster.mat)
+  filter(season == "fall") %>%
+  left_join(cluster.mat) 
 ## species richness trends
 
 richness = full %>%
@@ -348,6 +358,13 @@ write.csv(taxa_presence, file = "Data/CSVs/taxa.presence.csv")
 
 
 ## excluding SO4 because I'm not quite convinced that the measrements are the same
+test = read.csv(file = "Data/CSVs/richness.csv")
+
+richness = richness %>%
+  ungroup() %>%
+  mutate(DOC_update = as.numeric(test$DOC_update))
+
+
 richness.simple = richness %>%
   ungroup() %>%
   select(-SurficialGeology, -DOC, -temp_do, 
@@ -358,9 +375,11 @@ richness.simple = richness %>%
          -ID, -min_do, -SO4, -Pond_num, -Lake, -TotalP) %>%
   select(cluster, everything()) %>%
   ungroup() %>%
-  pivot_longer(4:20, names_to = "metric", values_to = "values") %>%
+  pivot_longer(4:21, names_to = "metric", values_to = "values") %>%
   select(-season) %>%
   unique()
+
+
 
 richness.simple %>%
   ggplot(aes(x = cluster, y = values)) + 
@@ -391,13 +410,14 @@ for(i in 1:length(unique(richness.simple$metric))){
 }
 
 ##Kruscal
-table = matrix(NA, nrow = 17, ncol = 5)
-colnames(table) = c("metric", "metric.p", "2_1.p","3_1.p", "3_2.p")
+table = matrix(NA, nrow = 18, ncol = 9)
+colnames(table) = c("metric", "metric.p","metric.stat", "2_1.p","3_1.p", "3_2.p","w.stat.12", "w.stat.13", "w.stat.23")
 
 
 for(i in 1:length(unique(richness.simple$metric))){
+ 
   x = richness.simple %>% 
-    filter(metric == unique(richness.simple$metric[i]))
+    filter(metric == unique(richness.simple$metric)[i])
   
   aov.object = kruskal.test(x$values ~ x$cluster) 
   
@@ -409,15 +429,19 @@ for(i in 1:length(unique(richness.simple$metric))){
     
     table[i,1] = (unique(richness.simple$metric[i]))
     table[i,2] = aov.object.sum
+    table[i,3] = aov.object$statistic
     
     posthoc <- pairwise.wilcox.test(x$values, as.factor(x$cluster), p.adjust.method = "bonferroni")
-    table[i,3] = posthoc$p.value[1,1]
-    table[i,4] = posthoc$p.value[2,1]
-    table[i,5] = posthoc$p.value[2,2]
+    table[i,4] = posthoc$p.value[1,1]
+    table[i,5] = posthoc$p.value[2,1]
+    table[i,6] = posthoc$p.value[2,2]
     
-
-
-    
+    c1 = x %>% filter(cluster == 1)
+    c2 = x %>% filter(cluster ==2) 
+    c3 = x %>% filter(cluster ==3 )
+    table[i,7] = (wilcox.test(c1$values, c2$values))$statistic
+    table[i,8] = (wilcox.test(c1$values, c3$values))$statistic
+    table[i,9] = (wilcox.test(c2$values, c3$values))$statistic
   }
   
   
@@ -430,8 +454,9 @@ table = table %>% na.omit() %>% as.data.frame() %>%
          `3_2.p` = round(as.numeric(`3_2.p`), digits = 3),
          `3_1.p` = round(as.numeric(`3_1.p`), digits = 3),
          `2_1.p` = round(as.numeric(`2_1.p`), digits = 3)) %>%
-  mutate(across(everything(), ~ ifelse(. < 0.001, "< 0.001", .))) %>%
+ # mutate(across(everything(), ~ ifelse(. < 0.001, "< 0.001", .))) %>%
   as.data.frame()
+
 
 
 table 
@@ -439,41 +464,53 @@ table
 #write.csv(table, "Data/CSVs/anova_summary.csv")
 
 ## Visualize just the significant factors '
-richness.simple$variable_level <- factor(richness.simple$metric,
-                                         levels = c("ANC" "CA", "SIO2","NO3",
-                                                    "TotalP","DOC.1", "Elevation",
-                                                    "depth.5mgL", "temp.5mgL",
-                                                    "thermo_depth", "richness", "sechi.depth"))
 
 
-aov_variable_names = c("ANC" = "ANC (µeq/L)", "CA" = "Ca (mg/L)", "SIO2" = "SiO2 (mg/L)",
+
+aov_variable_names = c("ANC" = "ANC (µeq/L)",
+                       "CA" = "Ca (mg/L)", 
+                       "SIO2" = "SiO2 (mg/L)",
                        "NO3" = "NO3 (mg/L)",
-                       "TotalP" = "Total P (mg/L)", "DOC.1" = "DOC (mg/L)",
-                       "Elevation" = "Elevation (m)", "depth.5mgL" = "Depth TD5", 
-                       "temp.5mgL" = "Temp TD5", 
+                        "DOC.1" = "DOC (mg/L)",
+                       "Elevation" = "Elevation (m)", 
+                       "depth.5mgL" = "Depth TDO5", 
+                       "temp.5mgL" = "Temp TDO5", 
                        "thermo_depth" = "Thermocline depth (m)",
-                       "richness" = "Family Richness" )
+                       "richness" = "Family Richness",
+                       "sechi.depth" = "Secchi depth",
+                       "surface_area" = "Surface area (ha)",
+                       "DOC_update" = "DOC (mg/L)",
+                       "max_depth" = "Max depth")
 
 
 richness.simple %>%
-  select(-variable_level) %>%
+  #select(-variable_level) %>%
   na.omit() %>%
   filter(metric %in% unique(table$metric)) %>%
+  filter(metric != "DOC.1") %>%
 
   unique() %>%
- mutate(metric = factor(metric, levels = c("CA", "NO3","SIO2", 
-                                               "Elevation","max_depth" ,
-                                               "depth.5mgL", "sechi.depth", "temp.5mgL", "thermo_depth", "richness"))) %>%
+ mutate(metric = factor(metric, levels = c("ANC","CA", "NO3","SIO2",
+                                              "Elevation","max_depth" , "surface_area", "DOC_update",
+                                          "sechi.depth", "depth.5mgL",  "temp.5mgL", "thermo_depth", "richness"))) %>%
+
   ggplot(aes(x = cluster, y = values, fill = cluster)) + 
   geom_boxplot(alpha = .85) + 
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 15) +
 
-  facet_wrap(~metric, scales = "free_y", ncol = 3) +
+  facet_wrap(~metric, scales = "free_y", ncol = 4, labeller = labeller(metric = aov_variable_names)) +
   scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) +
   theme(legend.position = "none") + 
   xlab("Cluster") +
-  theme(axis.title.y = element_blank()) +
-  geom_jitter()
+  theme(axis.title.y = element_blank(), 
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_jitter() + 
+  scale_x_discrete(labels = c(
+  "1" = "Shallow\nthermocline", 
+  "3" = "Deep\nthermocline", 
+  "2" = "Diverse,\ndeep thermocline"
+)) 
+
 
 
 

@@ -21,6 +21,14 @@ dat = acd %>% filter(YEAR > 2013) %>%
   summarize(mean.v1 = mean(VALUE_1, na.rm =T)) %>%
   pivot_wider(names_from = METRIC, values_from = mean.v1)
 
+
+## Figuring out the DOC years for the nmds
+
+acd %>% 
+  filter(METRIC == 'DISSOLVED ORGANIC CARBON') %>%
+  group_by(WATER) %>%
+  summarize(min_year = min(YEAR))
+
 ## Checking that the metrics are right ---------------
 
 

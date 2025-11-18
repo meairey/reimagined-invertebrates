@@ -122,8 +122,7 @@ simmr.full %>% filter(taxa == "unionidae")
 load(file = "Data/RData/simmr_full.RData")
 
 
-family.order = c("viviparidae", "lymnaeidae","planorbidae","sphaeriidae", "unionidae", "polycentropodidae", "chironomidae",
-                 "macromiidae", "aeshnidae","libellulidae", "gomphidae", "corduliidae" , "coenagrionidae", "leptophlebiidae","heptageniidae", "ephemerellidae","talitridae", "elmidae")
+
 
 
 
@@ -138,7 +137,11 @@ simmr.full = simmr.full %>%
 
 
 order_colors = wes_palette("Darjeeling1", type = "continuous", n = 8)
-order_levels = c("odonata", "ephemeroptera", "hemiptera", "gastropoda", "trichoptera", "diptera",  "amphipoda", "coleoptera")
+
+order_levels = c("odonata", "ephemeroptera", "hemiptera", "gastropoda", "trichoptera", "diptera",  "amphipoda", "coleoptera", "bivalvia")
+
+family.order = c("viviparidae", "lymnaeidae","planorbidae","sphaeriidae", "unionidae", "polycentropodidae", "chironomidae",
+                 "macromiidae", "aeshnidae","libellulidae", "gomphidae", "corduliidae" , "coenagrionidae", "leptophlebiidae","heptageniidae", "ephemerellidae","talitridae", "elmidae")
 
 ## Contribution of zooplankton to taxa
 
@@ -205,6 +208,25 @@ simmr.full %>%
   scale_fill_manual("Order", values = order_colors) 
 
 
+simmr.full %>%
+  filter(rowname %in% c("PERI", "ZOOP", "LEAF"),
+         taxa %nin% c("INSECT"),
+         taxa %in% family.order) %>%
+  group_by(taxa) %>%
+  mutate(count = n()) %>%
+  select(count, everything()) %>%
+  filter(count > 3) %>%
+  ggplot(aes( x =factor(taxa, level = rev(family.order)),
+             y = mean,
+             fill =factor(ORDER, levels = order_levels))) +
+  geom_boxplot() +
+  #geom_point() + 
+  coord_flip() +
+  ylab("Source Contribution") +
+  theme_minimal(base_size = 14) +
+  theme(axis.title.y = element_blank()) +
+  scale_fill_manual("Order", values = order_colors) +
+  facet_wrap(~rowname, labeller = labeller(rowname = c("LEAF" = "Leaf", "PERI" = "Periphyton", "ZOOP" = "Zooplankton")))+ theme(panel.spacing = unit(2, "lines"))
 
 
 
@@ -365,6 +387,25 @@ tpc.max = tpc %>%
   slice_max(trophic_position_weighted) 
 cor.test(tpc.max$trophic_position_weighted, tpc.max$depth.5mgL, method = "spearman")
 ## Trophic position across clusters
+
+
+tpc %>% 
+  filter(FAMILY %in% c("aeshnidae", "gomphidae", "libellulidae", "corduliidae")) %>%
+  ggplot(aes(x = as.factor(cluster), y = trophic_position_weighted, fill = as.factor(cluster))) + 
+  geom_boxplot() + 
+  geom_point() + 
+  theme_minimal(base_size = 15) + 
+  ylab("Trophic Position")  + 
+  scale_x_discrete(labels = c(
+  "1" = "Shallow\nthermocline", 
+  "3" = "Deep\nthermocline", 
+  "2" = "Diverse,\ndeep thermocline"
+))  +
+  theme(axis.title.x = element_blank(),
+        legend.position = "none") +
+   scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) 
+
+
 
 tpc %>%
   group_by(FAMILY) %>% 
