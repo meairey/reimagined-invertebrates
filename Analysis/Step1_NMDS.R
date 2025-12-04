@@ -5,26 +5,11 @@ library(tidyverse)
 library(ggrepel)
 library(ggplot2)
 library(wesanderson)
+library(ggrepel)
 `%nin%` = Negate(`%in%`)
 
 # Load
 load(file = "Data/RData/FullData.RData")
-
-
-
-full %>% 
-  filter(GEAR %in% c("DPN", "SHS"), 
-         MONTH == "SPRING", 
-         WATER %in% c("DTL", "MSL")) %>% 
-  ungroup() %>% 
-  group_by(WATER, GEAR, SITE_N, FAMILY) %>%
-  summarize(total_n = sum(TOTAL_N)) %>%
-  ungroup() %>%
-  group_by(WATER, GEAR, FAMILY) %>%
-  summarize(freq = n()) %>%
-  ggplot(aes(y = freq)) + 
-  geom_histogram() + 
-  facet_wrap(~WATER + GEAR)
 
 ## Full
 ## create the NMDS data frame ------------------
@@ -63,12 +48,8 @@ order_matrix = full %>%
   arrange(ORDER..OR.ABOVE., FAMILY) %>%
   rename(ORDER = ORDER..OR.ABOVE.) %>% unique()
 
-
-nmds.dat ## Frame is presence absence, sites are rows. columns are families.
-
-
 # Run the NMDS using Bray-Curtis distance ------------------------------
-nmds <- metaMDS(nmds.dat, distance = "jaccard", trymax = 100) ## Do not run this again just load the data out of file below
+nmds = metaMDS(nmds.dat, distance = "jaccard", trymax = 100) ## Do not run this again just load the data out of file below
 
 #save(nmds, file = "Data/RData/nmds.RData") ## Do not run this again just load the data out of the file below
 
@@ -83,16 +64,16 @@ site_scores = as.data.frame(scores(nmds, display = "sites"))
 # Run for loop and use elbow method to determine optimal clusters --------------
 ## test k 
 # 
-wss <- numeric()
+wss = numeric()
 
 # Use a for loop to run k-means for k = 1 to 10
 for (k in 1:10) {
-  kmeans_result <- kmeans(site_scores, centers = k, nstart = 10)
-  wss[k] <- kmeans_result$tot.withinss  # Store the total within-cluster sum of squares
+  kmeans_result = kmeans(site_scores, centers = k, nstart = 10)
+  wss[k] = kmeans_result$tot.withinss  # Store the total within-cluster sum of squares
 }
 
 # plot ------------
-elbow_plot <- data.frame(k = 1:10, WSS = wss)
+elbow_plot = data.frame(k = 1:10, WSS = wss)
 
 ggplot(elbow_plot, aes(x = k, y = WSS)) +
   geom_line() +
@@ -104,11 +85,11 @@ ggplot(elbow_plot, aes(x = k, y = WSS)) +
 
 ## Optimal clusters looks like k = 3
 
-k <- 3  # Number of clusters you want to try
-kmeans_result <- kmeans(site_scores, centers = k)
+k = 3  # Number of clusters you want to try
+kmeans_result = kmeans(site_scores, centers = k)
 
 # Add the cluster results to the site_scores data frame
-site_scores$cluster <- as.factor(kmeans_result$cluster)
+site_scores$cluster = as.factor(kmeans_result$cluster)
 #save(file = "Data/RData/site_scores.RData", site_scores)
 #load(file = "Data/RData/site_scores.RData")
 #load(file = "Data/RData/simmr.output.RData")
@@ -126,28 +107,20 @@ sites = as.data.frame(as.matrix(nmds$points)) %>%
 species = as.data.frame(as.matrix(nmds$species)) %>%
   rownames_to_column(var = "ID") 
 
-## View sites and clusters
-
-library(ggrepel)
-
 
 ## Convex Hulls 
 # Compute the convex hull for each cluster
-hull_data <- sites %>%
+hull_data = sites %>%
   group_by(cluster) %>%
   slice(chull(MDS1, MDS2)) %>%
   ungroup()
-
-nmds.labels = c("Shallow thermocline", "Diverse, deep thermocline", "Deep thermocline")
-
-
 
 ## PERMANOVA ---------------------------------------------------------
 
 ## Checks to see if these site clusters are significant
 
 # Run PERMANOVA using the distance matrix and clusters as the grouping factor
-distance_matrix <- vegdist(nmds.dat #%>% 
+distance_matrix = vegdist(nmds.dat #%>% 
                              #select(-season, -WATER, -cluster)
                            , method = "bray")
 adonis2(distance_matrix~site_scores$cluster)
@@ -163,7 +136,7 @@ simper.nmds.formatting = nmds.dat %>%
   mutate(cluster = site_scores$cluster) %>%
   arrange(cluster)
 
-simper_result <- simper(simper.nmds.formatting %>%
+simper_result = simper(simper.nmds.formatting %>%
                           select(-cluster) %>%
                           select_if(~ sum(.) != 0) %>%
                           select_if(~ sum(.) != 20), 
@@ -213,6 +186,165 @@ simpr.families = c(simper.families.important$family, simper.cont1$family) %>%
 
 taxon_frame = read.csv("Data/CSVs/taxon_frame.csv")
 
+
+
+
+
+
+
+
+
+## Chemistry -------------
+
+
+load("Data/RData/chem_data.RData")
+
+chemistry = chemistry %>%
+  rename(depth.5mgL = min_depth,
+         temp.5mgL = min_temp) %>%
+  filter(season == "fall") %>%
+  left_join(cluster.mat) 
+## species richness trends
+
+richness = full %>%
+  select(WATER, MONTH, FAMILY) %>% ## I've been calculating richness by genus. Now switching to family
+  group_by(WATER, MONTH) %>%
+  unique() %>%
+  summarize(richness = n()) %>%
+  rename("season" = "MONTH") %>%
+  mutate(season = tolower(season)) %>%
+  left_join(chemistry)
+
+
+
+
+
+
+## Chemistry ---------------------------------------------------------------
+
+
+
+
+## excluding SO4 because I'm not quite convinced that the measurements are the same
+test = read.csv(file = "Data/CSVs/richness.csv")
+
+richness = richness %>%
+  ungroup() %>%
+  mutate(DOC_update = as.numeric(test$DOC_update))
+
+
+richness.simple = richness %>%
+  ungroup() %>%
+  select(-SurficialGeology, -DOC, -temp_do, 
+         -AirEqPh, -DIC, -F, -Fe, -K, -LabPh,
+         -Mg, -Mn, -Na, -Pb, -rate, -SCONDUCT, 
+         -Tal, -TDAI, -TotalP2, -TrueColor,
+         -Volume, -Zn, -CL, -Lake.Type, -Lake,
+         -ID, -min_do, -SO4, -Pond_num, -Lake, 
+         -TotalP, -ANC, -CA, -FUI.num, -NH4, -FieldPh, -NO3, 
+         -SIO2) %>%
+  select(cluster, everything()) %>%
+  ungroup() %>%
+  pivot_longer(4:14, names_to = "metric", values_to = "values") %>%
+  select(-season) %>%
+  unique() %>% 
+  na.omit()
+
+## Env fit for chemistry
+
+env_data = richness.simple %>% 
+  pivot_wider(names_from = metric, values_from = values ) %>%
+  na.omit() %>%
+  select(-cluster) %>%
+  column_to_rownames(var = 'WATER')
+
+env_fit = envfit(nmds, env_data)
+env_fit.vectors = cbind(env_fit$vectors$arrows %>% as.data.frame(), env_fit$vectors$pvals) %>%
+  rename(pvals = `env_fit$vectors$pvals`) %>%
+  filter(pvals < .05) %>%
+  mutate(NMDS1 = NMDS1 * 2, 
+         NMDS2 = NMDS2 * 2) %>%
+  mutate(Metric = rownames(.)) %>%
+  mutate(Metric = case_when(Metric == "richness" ~ "Richness", 
+                            Metric == "surface_area" ~ "Surface area (ha)", 
+                            Metric == "thermo_depth" ~ "Thermocline depth (m)"))
+
+
+
+
+
+
+
+
+
+
+### Taxa by order across clusters
+
+write.csv(richness, file = "Data/CSVs/richness.csv")
+
+### Functional feeding groups across clusters
+
+
+full %>%
+  filter(WATER == "MSL") %>%
+  select(MONTH, ORDER..OR.ABOVE., FAMILY, GENUS) %>%
+  unique() %>% write.csv("Data/CSVs/Moss_Invert_Taxa.csv")
+
+
+# Plots -----------------------
+
+
+nmds.labels = c("Deep thermocline", "Intermediate thermocline", "Shallow thermocline")
+
+
+### Figure 1 -----------------------
+# NMDS with convex hulls
+ggplot(sites, aes(x = MDS1, y = MDS2)) +
+  geom_point(aes(color = factor(cluster)), size = 2) +
+
+  labs(color = "Cluster", fill = "Cluster") +
+  theme_minimal() +
+  theme(legend.position = "right") + 
+    geom_text_repel(data = species %>%
+              filter(ID %in% simper.families.important$family), aes(x = MDS1, y = MDS2, label = ID)) + 
+  theme_minimal(base_size = 14) +
+  scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)], labels = nmds.labels) +
+  scale_color_manual(values = wes_palette("Royal2")[c(3,1,5)], labels = nmds.labels) + 
+   geom_label(data = env_fit.vectors %>% 
+                filter(Metric != "Richness"), aes(x = NMDS1 + .25, y = NMDS2 + .1, label = Metric)) + 
+  geom_segment(data = env_fit.vectors %>%
+                 filter(Metric != "Richness"), aes(yend = NMDS2, xend = NMDS1, x = 0, y = 0),
+               arrow = arrow()) +
+   geom_polygon(data = hull_data, aes(fill = factor(cluster)), alpha = 0.3, color = NA) +
+  xlim(-1.5, 2.5) 
+
+### Figure 2 -----------------------
+## Significant env.fit metrics by cluster 
+richness.simple %>%
+  filter(metric %in% rownames(env_fit.vectors)) %>%
+  mutate(Metric = case_when(metric == "richness" ~ "Richness", 
+                            metric == "surface_area" ~ "Surface area (ha)", 
+                            metric == "thermo_depth" ~ "Thermocline depth (m)")) %>%
+  ggplot(aes(x = cluster, y = values, fill = cluster)) + 
+  geom_boxplot() + 
+  theme_minimal(base_size = 12) +
+  facet_wrap(~Metric, scales = "free") + 
+  geom_point() +
+  scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) +
+  theme(legend.position = "none") + 
+  xlab("Cluster") +
+  theme(axis.title.y = element_blank(), 
+        axis.text.x = element_text(angle = 0, hjust = 0)) +
+  scale_x_discrete(labels = c(
+  "1" = "Deep\nthermocline", 
+  "2" = "Intermediate\nthermocline", 
+  "3" = "Shallow,\nthermocline"
+)) + 
+  theme(plot.margin = margin(t = 5, r = 20, b = 5, l = 5))
+  
+  
+  
+### Figure 3 ------------------------  
 nmds.dat %>%
   rownames_to_column(var = "ID") %>%
   left_join(cluster.mat %>% 
@@ -249,296 +381,4 @@ nmds.dat %>%
   theme(axis.title.y = element_blank()) + 
   xlab("Frequency within Cluster") 
 
-
-
-
-
-
-
-## Chemistry -------------
-
-
-load("Data/RData/chem_data.RData")
-
-chemistry = chemistry %>%
-  rename(depth.5mgL = min_depth,
-         temp.5mgL = min_temp) %>%
-  filter(season == "fall") %>%
-  left_join(cluster.mat) 
-## species richness trends
-
-richness = full %>%
-  select(WATER, MONTH, FAMILY) %>% ## I've been calculating richness by genus. Now switching to family
-  group_by(WATER, MONTH) %>%
-  unique() %>%
-  summarize(richness = n()) %>%
-  rename("season" = "MONTH") %>%
-  mutate(season = tolower(season)) %>%
-  left_join(chemistry)
-
-
-
-
-#save(file = "Data/RData/richness_cluster.RData", richness)
-
-## Grouped by cluster -------------------------
-
-## Assigning taxa to different clusters -------
-
-nmds.dat.cluster = nmds.dat %>% rownames_to_column(var = "ID") %>%
-  separate(ID, into = c("season","WATER")) %>%
-  mutate(season = tolower(season)) %>%
-  left_join(cluster.mat)
-
-## Which taxa occur at any point in clusters 
-
-FFG = read.csv("Data/CSVs/FFGS.csv") %>%
-  select(FAMILY, FG) %>%
-  unique() %>%
-  na.omit()
-taxa_presence = nmds.dat.cluster %>% 
-  ungroup() %>%
-  select(season, cluster, everything()) %>%
-  pivot_longer(4:49) %>%
-  group_by(cluster) %>%
-  unite("ID", c(season, WATER)) %>%
-  mutate(total_lakes = length(unique(ID))) %>%
-  ungroup() %>%
-  select(cluster, name, total_lakes, value, ID) %>%
-  unique() %>%
-  group_by(cluster, name, total_lakes) %>%
-  summarize(sum = sum(value)) %>%
-  mutate(proportion.lakes = sum/total_lakes) %>%
-  ungroup() %>%
-  group_by(name) %>%
-  filter(sum > 0) %>% 
-  left_join(FFG, by = c("name" = "FAMILY"))
-
-taxa_presence %>% 
-  group_by(cluster) %>%
-  mutate(count = length(unique(name))) %>%
-
-  ungroup() %>% 
-  group_by(cluster, count, FG) %>%
-  summarize(ffg = n()) %>%
-  mutate(prop = ffg / count) %>%
-  ungroup() %>%
-  select(cluster, FG, prop) %>%
-  print(n = 100)
-  
-  
-  mutate(prop = count / total_lakes)
-
-
-#write.csv(taxa_presence, file = "Data/CSVs/taxa.presence.csv")
-
-
-
-
-## Chemistry ---------------------------------------------------------------
-
-
-
-
-## excluding SO4 because I'm not quite convinced that the measurements are the same
-test = read.csv(file = "Data/CSVs/richness.csv")
-
-richness = richness %>%
-  ungroup() %>%
-  mutate(DOC_update = as.numeric(test$DOC_update))
-
-
-richness.simple = richness %>%
-  ungroup() %>%
-  select(-SurficialGeology, -DOC, -temp_do, 
-         -AirEqPh, -DIC, -F, -Fe, -K, -LabPh,
-         -Mg, -Mn, -Na, -Pb, -rate, -SCONDUCT, 
-         -Tal, -TDAI, -TotalP2, -TrueColor,
-         -Volume, -Zn, -CL, -Lake.Type, -Lake,
-         -ID, -min_do, -SO4, -Pond_num, -Lake, 
-         -TotalP, -ANC, -CA, -FUI.num, -NH4, -FieldPh, -NO3, 
-         -SIO2) %>%
-  select(cluster, everything()) %>%
-  ungroup() %>%
-  pivot_longer(4:14, names_to = "metric", values_to = "values") %>%
-  select(-season) %>%
-  unique()
-
-## Env fit for chemistry
-
-env_data = richness.simple %>% 
-  pivot_wider(names_from = metric, values_from = values ) %>%
-  na.omit() %>%
-  select(-cluster) %>%
-  column_to_rownames(var = 'WATER')
-
-env_fit = envfit(nmds, env_data)
-env_fit.vectors = cbind(env_fit$vectors$arrows %>% as.data.frame(), env_fit$vectors$pvals) %>%
-  rename(pvals = `env_fit$vectors$pvals`) %>%
-  filter(pvals < .05)
-
-
-richness.simple %>%
-  ggplot(aes(x = cluster, y = values)) + 
-  geom_boxplot() + 
-  theme_minimal(base_size = 12) +
-  facet_wrap(~metric, scales = "free") + 
-  geom_point()
-
-table = matrix(NA, nrow = 16, ncol = 5)
-colnames(table) = c("metric", "metric.p", "2_1.p","3_1.p", "3_2.p")
-
-for(i in 1:length(unique(richness.simple$metric))){
-  x = richness.simple %>% 
-    filter(metric == unique(richness.simple$metric[i]))
-  
-  aov.object = aov(x$values ~ x$cluster) 
-  aov.object.sum  = aov.object %>% summary
-  if(aov.object.sum[[1]]$`Pr(>F)`[1] < .05){
-    
-    table[i,1] = (unique(richness.simple$metric[i]))
-    table[i,2] = (aov.object.sum[[1]]$`Pr(>F)`[1])
-    table[i,3] = (TukeyHSD(aov.object))$`x$cluster`[1,4]
-    table[i,4] = (TukeyHSD(aov.object))$`x$cluster`[2,4]
-    table[i,5] = (TukeyHSD(aov.object))$`x$cluster`[3,4]
-    
-  }
-  
-  
-}
-
-##Kruscal
-table = matrix(NA, nrow = 18, ncol = 9)
-colnames(table) = c("metric", "metric.p","metric.stat", "2_1.p","3_1.p", "3_2.p","w.stat.12", "w.stat.13", "w.stat.23")
-
-
-for(i in 1:length(unique(richness.simple$metric))){
- 
-  x = richness.simple %>% 
-    filter(metric == unique(richness.simple$metric)[i])
-  
-  aov.object = kruskal.test(x$values ~ x$cluster) 
-  
-  
-  aov.object.sum  = aov.object$p.value
-  
-  if(aov.object.sum < .05){
-    print( unique(richness.simple$metric[i]))
-    
-    table[i,1] = (unique(richness.simple$metric[i]))
-    table[i,2] = aov.object.sum
-    table[i,3] = aov.object$statistic
-    
-    posthoc <- pairwise.wilcox.test(x$values, as.factor(x$cluster), p.adjust.method = "bonferroni")
-    table[i,4] = posthoc$p.value[1,1]
-    table[i,5] = posthoc$p.value[2,1]
-    table[i,6] = posthoc$p.value[2,2]
-    
-    c1 = x %>% filter(cluster == 1)
-    c2 = x %>% filter(cluster ==2) 
-    c3 = x %>% filter(cluster ==3 )
-    table[i,7] = (wilcox.test(c1$values, c2$values))$statistic
-    table[i,8] = (wilcox.test(c1$values, c3$values))$statistic
-    table[i,9] = (wilcox.test(c2$values, c3$values))$statistic
-  }
-  
-  
-}
-
-
-
-table = table %>% na.omit() %>% as.data.frame() %>%
-  mutate(metric.p = round(as.numeric(metric.p), digits = 3),
-         `3_2.p` = round(as.numeric(`3_2.p`), digits = 3),
-         `3_1.p` = round(as.numeric(`3_1.p`), digits = 3),
-         `2_1.p` = round(as.numeric(`2_1.p`), digits = 3)) %>%
- # mutate(across(everything(), ~ ifelse(. < 0.001, "< 0.001", .))) %>%
-  as.data.frame()
-
-
-
-table 
-
-#write.csv(table, "Data/CSVs/anova_summary.csv")
-
-## Visualize just the significant factors '
-
-
-
-aov_variable_names = c("ANC" = "ANC (µeq/L)",
-                       "CA" = "Ca (mg/L)", 
-                       "SIO2" = "SiO2 (mg/L)",
-                       "NO3" = "NO3 (mg/L)",
-                        "DOC.1" = "DOC (mg/L)",
-                       "Elevation" = "Elevation (m)", 
-                       "depth.5mgL" = "Depth TDO5", 
-                       "temp.5mgL" = "Temp TDO5", 
-                       "thermo_depth" = "Thermocline depth (m)",
-                       "richness" = "Family Richness",
-                       "sechi.depth" = "Secchi depth",
-                       "surface_area" = "Surface area (ha)",
-                       "DOC_update" = "DOC (mg/L)",
-                       "max_depth" = "Max depth")
-
-
-richness.simple %>%
-  #select(-variable_level) %>%
-  na.omit() %>%
-  filter(metric %in% unique(table$metric)) %>%
-  filter(metric != "DOC.1") %>%
-
-  unique() %>%
- mutate(metric = factor(metric, levels = c("ANC","CA", "NO3","SIO2",
-                                              "Elevation","max_depth" , "surface_area", "DOC_update",
-                                          "sechi.depth", "depth.5mgL",  "temp.5mgL", "thermo_depth", "richness"))) %>%
-
-  ggplot(aes(x = cluster, y = values, fill = cluster)) + 
-  geom_boxplot(alpha = .85) + 
-  theme_minimal(base_size = 15) +
-
-  facet_wrap(~metric, scales = "free_y", ncol = 4, labeller = labeller(metric = aov_variable_names)) +
-  scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) +
-  theme(legend.position = "none") + 
-  xlab("Cluster") +
-  theme(axis.title.y = element_blank(), 
-        axis.text.x = element_text(angle = 45, hjust = 1)) +
-  geom_jitter() + 
-  scale_x_discrete(labels = c(
-  "1" = "Shallow\nthermocline", 
-  "3" = "Deep\nthermocline", 
-  "2" = "Diverse,\ndeep thermocline"
-)) 
-
-
-
-
-
-
-
-### Taxa by order across clusters
-
-write.csv(richness, file = "Data/CSVs/richness.csv")
-
-### Functional feeding groups across clusters
-
-
-full %>%
-  filter(WATER == "MSL") %>%
-  select(MONTH, ORDER..OR.ABOVE., FAMILY, GENUS) %>%
-  unique() %>% write.csv("Data/CSVs/Moss_Invert_Taxa.csv")
-
-
-## Plots
-# Plot with convex hulls
-ggplot(sites, aes(x = MDS1, y = MDS2)) +
-  geom_point(aes(color = factor(cluster)), size = 2) +
-  geom_polygon(data = hull_data, aes(fill = factor(cluster)), alpha = 0.3, color = NA) +
-  labs(color = "Cluster", fill = "Cluster") +
-  theme_minimal() +
-  theme(legend.position = "right") + 
-    geom_text_repel(data = species %>%
-              filter(ID %in% simper.families.important$family), aes(x = MDS1, y = MDS2, label = ID)) + 
-  theme_minimal(base_size = 14) +
-  scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)], labels = nmds.labels) +
-  scale_color_manual(values = wes_palette("Royal2")[c(3,1,5)], labels = nmds.labels) 
   
