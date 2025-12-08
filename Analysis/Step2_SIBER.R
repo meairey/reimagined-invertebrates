@@ -15,66 +15,25 @@ source("../solid-fishstick/Analysis/Documentation/isotope_functions_update.R")
 ## Load in taxon data
 taxon_frame = read.csv("Data/CSVs/taxon_frame.csv") %>% unique()# rename column
 
-## Cluster and chemistry data
-cluster_chem = read.csv(file = "Data/CSVs/richness_update.csv") %>%
-  #unite("ID", WATER, season, sep = ".") %>%
-  left_join(community.legend, by = c("ID" = "community.name"))
+data.iso = read.csv(file = "Data/CSVs/processed_data.csv")
+data = read.csv(file = "Data/CSVs/siber_data.csv")
 
 
-## Join the sampling and measurement data files
-sample = read.csv("../1.clean_isotope/isotope_sample.csv") ## Sampling event information
-data.iso=  read.csv("../1.clean_isotope/iso_measurement.csv") %>%
-  left_join(sample, by = c("ISO_YSAMP_N")) %>%
-  ## lipid correction factor
-  mutate(D13C = case_when(CATEGORY %nin% c("ALGA", "PLANT") ~ as.numeric(D13C) - 3.32 + .99 * (PER_C / PER_N),
-                          CATEGORY %in% c("ALGA", "PLANT") ~ as.numeric(D13C))) %>% 
-  filter(GROUP != "FISH", # Remove fish f
-         !(WATER == "LML" & DAY_N < 230))  # Remove extraneous sampling events 
-  
-
-
-
-
-data = data.iso %>% ## This one is formatted for SIBER
-  filter(!(WATER == "LML" & DAY_N < 230)) %>%
-  left_join(taxon_frame %>% select(TAXON, FAMILY, ORDER) %>% unique()) %>%
-  mutate(D15N = as.numeric(D15N),
-         D13C = as.numeric(D13C)) %>%
-  mutate(GROUP = str_replace(GROUP, "CLAM","BIVALVE"),
-         GROUP = str_replace(GROUP,"MUSSEL", "BIVALVE"))  %>%
-  mutate(graph_id = case_when(is.na(ORDER) == T ~ GROUP, 
-                              is.na(ORDER) == F ~ ORDER)) %>%
-  mutate(season = case_when(MONTH < 8 ~ "spring", MONTH > 7 ~ "fall")) %>%
-  unite("community.name", c(WATER, season), sep = ".") %>%
-  mutate(group.name = case_when(is.na(FAMILY)== T ~ GROUP, 
-                           is.na(FAMILY)==F ~ FAMILY))%>%
-  group_by(community.name, group.name) %>% 
-  mutate(total = n()) %>%
-  filter(total > 3) %>%
-  select( D13C, D15N, group.name, community.name) %>%
-  rename(iso1 = D13C,
-         iso2 = D15N) %>%
-  na.omit() %>%
-  ungroup() %>%
-  arrange(community.name) %>%
-  mutate(community = as.numeric(as.factor(community.name))) %>%
-  filter(group.name %nin% c("LEAF", "PERI", "INSECT",
-                            "ZOOP", "CRAY", "SIL")) %>% ## Filter out groups not to include in isotopic niche analysis
-  arrange(group.name) %>% ## Needs to be arranged here because SIBER orders things numerically 
-  mutate(group.name = tolower(group.name)) %>%
-  mutate(group = as.numeric(as.factor(group.name))) %>% ## Assign your groups in alphabetical order
-  arrange(community, group) %>%
-  as.data.frame() %>%
-  select(iso1, iso2, group, community, group.name, community.name) ## keep group and community name for legend 
-
+## Legends for plotting
 legend = data %>% select(group.name,group) %>%
   unique() %>%
-  mutate(color = c(1:15),
+  mutate(color = c(1:17),
          common = group.name, 
          CODE = group.name)
 
 community.legend = data %>% select(community, community.name) %>%
   unique() ## 
+
+## Cluster and chemistry data -- cluster from `Step1_NMDS.R`
+cluster_chem = read.csv(file = "Data/CSVs/richness_update.csv") %>%
+  #unite("ID", WATER, season, sep = ".") %>%
+  left_join(community.legend, by = c("ID" = "community.name"))
+
 
 
 # options for running jags
@@ -182,7 +141,7 @@ df.long  %>%
   geom_point(aes(col = sorted_comparison),size = 5, shape = "diamond") +
   geom_point(aes(x = spring.mean.water, y = fall.mean.water, col = sorted_comparison)) +
   geom_abline(intercept = 0, slope = 1, color = "black", linetype = "dashed") +
-  scale_color_manual( "Family Comparison", values = wes_palette("Darjeeling1",type = "discrete", n = 3)) +
+  scale_color_manual( "Family Comparison", values = wes_palette("Darjeeling1",type = "continuous", n = 6)) +
   xlab("Spring Overlap") + ylab("Fall Overlap")
 
 
@@ -191,9 +150,10 @@ df.long  %>%
 ## Combine in the clusters/richness/chemistry -------------------
 ca = df.long %>%
   filter(group1 == group2, group1 == "macroinvert") %>%
-  group_by(Community, post) %>%
+  left_join(community.legend, by = c("Community" = "community")) %>%
+  group_by(community.name, Community, post) %>%
   summarize(mean_overlap = mean(Values)) %>%
-  left_join(cluster_chem, by = c("Community" = "community")) 
+  left_join(cluster_chem, by = c("community.name"))
  
 
 ca %>%
@@ -211,30 +171,23 @@ ca %>%
     shape = 18, size = 1.2,
   )   + 
 
-  scale_color_manual("Cluster", values = wes_palette("Darjeeling1", type = "discrete", n =3)) +
+    scale_color_manual("Cluster", values = wes_palette("Royal2")[c(3,1,5)]) +
   ylab("Overlap (95% CI)") + xlab("Cluster") +
   theme(legend.position = "none")
 
-## need Bayestest comparison between clusters
-
-ca %>% ggplot(aes(x = richness, y = mean_overlap)) + 
-  geom_point() + 
-  geom_smooth()
-
+## Need to do Bayestest for comparisons between clusters
 
 
 ## for loop to see what is significantly associated with mean overlap
 
 overlap.lm.data = ca %>%
-  select(-SurficialGeology, -DOC, -temp_do, 
-         -AirEqPh, -DIC, -F, -Fe, -K, -LabPh,
-         -Mg, -Mn, -Na, -Pb, -rate, -SCONDUCT, 
-         -Tal, -TDAI, -TotalP2, -TrueColor,
-         -Volume, -Zn, -CL, -Lake.Type, -Lake,
-         -ID, -min_do, -SO4) %>%
+  select(-SurficialGeology, 
+      -Pond_num, -DOC_update_text, -temp_do,
+          -Lake.Type, -Lake,
+         -ID, -min_do) %>%
   select(cluster, everything()) %>%
   ungroup() %>%
-  pivot_longer(7:23, names_to = "metric", values_to = "values")  %>%
+  pivot_longer(7:dim(.)[2], names_to = "metric", values_to = "values")  %>%
   filter(is.na(metric) ==F)
 
 ### Nothing?
@@ -301,17 +254,23 @@ ellipse.area %>%
  
   ggplot(aes(x = factor(group.name, levels = axis_order), 
              y = area,
-             fill = factor(ORDER, levels = order_levels))) + 
-  geom_boxplot(outliers = FALSE) +
+             color = factor(ORDER, levels = order_levels))) + 
+     stat_summary(
+  fun = mean, 
+  fun.min = function(x) quantile(x, 0.025),   # lower bound of 95% CI
+  fun.max = function(x) quantile(x, 0.975),   # upper bound of 95% CI
+  geom = "pointrange",
+  shape = 18, size = 1.2,
+  ) +
   
   theme_minimal(base_size = 14) + 
   #theme(legend.position = "none") + 
   theme(axis.text.x = element_text(angle = 40, hjust = 1),
         axis.title.x = element_blank()) +
   ylab("SEAc 95% CI") +
-  scale_fill_manual(values = order_colors) +
+  scale_color_manual(values = order_colors) +
   scale_y_log10() +
-  labs(fill = "Order")
+  labs(color = "Order")
 
 ## Seasonal area effect
 seasonal.means = ellipse.area %>% 
@@ -351,7 +310,7 @@ ggplot() +
   geom_abline(intercept = 0, slope = 1, color = "black", linetype = "dashed") + 
   geom_point(aes(x = seasonal.means$spring, y = seasonal.means$fall, color = seasonal.means$common), size = 5, shape = "diamond") +
   labs(col = "Family") + xlab("Spring Niche Area") + ylab("Fall Niche Area") +
-  scale_color_manual(values = wes_palette("Darjeeling1", n = 4))
+  scale_color_manual(values = wes_palette("Darjeeling1", n = 5))
 
 
 
@@ -365,12 +324,12 @@ ellipse.area %>%
   ungroup() %>%
   ggplot(aes(x = Season, y = mean_area)) +
   theme_minimal(base_size = 14) + 
-   stat_summary(
-  fun = mean, 
-  fun.min = function(x) quantile(x, 0.025),   # lower bound of 95% CI
-  fun.max = function(x) quantile(x, 0.975),   # upper bound of 95% CI
-  geom = "pointrange",
-  shape = 18, size = 1.2,
+  stat_summary(
+    fun = mean, 
+    fun.min = function(x) quantile(x, 0.025),   # lower bound of 95% CI
+    fun.max = function(x) quantile(x, 0.975),   # upper bound of 95% CI
+    geom = "pointrange",
+    shape = 18, size = 1.2,
   ) +
   facet_wrap(~Water, scales = "free")
 
@@ -450,22 +409,6 @@ y_sd = sd(area.cluster$area)
 rope_range = c(-0.1 * y_sd, 0.1 * y_sd)
 rope(area2$area - area3$area, range = rope_range) ## < 5% 
 
-## sig difference
-
-area.cluster %>% pivot_wider(names_from = cluster, values_from = sd_area) %>%
-  mutate(dif1_2 =  `2`-`1`,
-         dif1_3 = `1`-`3`) %>%
-  ungroup() %>%
-  summarize(mean1_2 = mean(dif1_2), quant.low1_2 = quantile(dif1_2, .025), quant.high1_2 = quantile(dif1_2, .975),
-            mean1_3 = mean(dif1_3), quant.low1_3 = quantile(dif1_3, .025), quant.high1_3 = quantile(dif1_3, .975))
-
-
-
-
-
-## How does niche are vary overa
-
-
 
 
 ## Join area with the data out of richness to get chemistry for each of the waters
@@ -475,140 +418,53 @@ area_summary = ellipse.area %>% group_by(community,community.name, group.name, g
               select(-community), by = "community.name" )
 
 
-## For loop for overlap and metric - automates the regressions across variables
-
-## The modern DOC isn't significant
-
-area.loop = area_summary %>% 
-  filter(group.name %in% c("gomphidae", 
-                           "heptageniidae",
-                           "coenagrionidae"
-                           ))  %>%
-  select(-SurficialGeology, -cluster, -Pond_num, -ID, -Lake, -Lake.Type,
-         -DOC_update_text, -temp_do) %>%
-
-  ungroup() %>%
-  pivot_longer(7:17, names_to = "metric", values_to = "values")  %>%
-  filter(is.na(metric) ==F)
-
-## Only DOC appears to be significant
-for(i in 1:length(unique(area.loop$metric))){
-  #i = 20
-  lm.area = area.loop %>% 
-    filter(metric == unique(area.loop$metric)[i]) 
-  
-  lm.summary.area = lm(data = lm.area, mean_area ~ values) %>% summary()
-  
-  if(lm.summary.area$coefficients[2,4] < .05){
-    print(unique(lm.area$metric))
-    print(lm.summary.area$r.squared)
-    g = lm.area  %>%
-      ggplot(aes(x = values, y = mean_area)) + 
-      geom_jitter(aes(col = group.name), size = 3, alpha = .5) +
-      geom_smooth(method = "lm", col="black") +
-      theme_minimal(base_size = 20) +
-      xlab(paste(lm.area$metric %>% unique)) +
-      ylab("Niche Area") +
-      labs(col = "Family") +
-      xlab("DOC") +
-      scale_color_manual(values = wes_palette("Darjeeling1")) 
-      
-    
-    print(g)
-    
-  }else{
-    NULL
-  }
-}
-
-
-## I think DOC matters I'm going to try to do a random effects model
-
-
-lmer.data = area.loop %>% select(mean_area, metric, values, community.name, group.name) %>%
-  separate(community.name, into = c("Water", "Season")) %>%
-  filter(metric == "thermo_depth") # thermo_depth # DOC_update
-lmer.data %>% print(n = 100
-                    )
-library(lme4)
-lmer(mean_area ~ values +  Season +  (1| Water), data = lmer.data) %>% summary()
-
-lmer(mean_area ~ Season + (1|Water), data = lmer.data ) 
 
 
 
 
-
-
-
-
-
-
-
-area.loop %>% filter(metric %in% c("DOC_update", "DOC.1")) %>%
- # filter(values < 8) %>%
-  #filter(community.name %nin% c("ETL.fall", "GNL.fall", "COM.fall")) %>%
-  ggplot() + 
-  geom_jitter(aes(x = values, y = mean_area, col = metric)) + 
-  geom_smooth(aes(x = values, y = mean_area, col = metric),method = lm)
-
-
-modern.doc = area.loop %>% filter(metric %in% c("DOC_update")) 
-cor.test(modern.doc$values, modern.doc$mean_area, method = "spearman")
-lm(data = modern.doc, mean_area ~ log10(values)) %>% summary()
-
-
-## Create the DOC graph - the only significant variable...
-area_summary %>% filter(group.name %in% c("gomphidae", "heptageniidae", "coenagrionidae")) %>%
-  lm(data = ., mean_area ~ DOC_update) %>% summary()
-
-load(file = "Data/RData/taxa.clusters.RData")
-area_summary %>%
-  ungroup() %>%
-  select(group.name, mean_area) %>%
- # group_by( group.name) %>%
-# summarize(mean_area = mean(mean_area)) %>% 
-  filter(group.name %nin% c("FISH", "INSECT", "LEAF","ZOOP")) %>%
-  left_join(taxa.assign, by = c("group.name" = "FAMILY")) %>%
-  
-  ggplot(aes(x = cluster, y = mean_area)) + 
-  geom_boxplot() + 
-  geom_point()
 ## FFG --------------
 
 ffg = read.csv("Data/CSVs/FFGS.csv") %>%
   select(-GENUS) %>%
-  unique()
+  unique() %>%
+  select(FAMILY, FG) %>%
+  na.omit() %>%
+  unique() %>%
+  group_by(FAMILY) %>%
+  slice(1)
 
 ### FFG + Area ------
-ffg.summary = area_summary %>% 
+ffg.summary = ellipse.area %>% 
   left_join(ffg, by = c("group.name"= "FAMILY")) %>%
+  
+  left_join(cluster_chem %>%
+              select(community.name, cluster), by = "community.name") %>%
   ungroup() %>%
   select(FG,  everything()) %>%
-  mutate(FG = case_when(group.name %in% c("LEAF", "PERI","FISH") ~ group.name,
-                            group.name %nin% c("LEAF", "PERI", "FISH") ~ FG))  %>% 
-  mutate(FG = as.character(FG)) %>%
-  as.data.frame() %>%
-  select(mean_area, FG) %>%
-  na.omit() %>%
-  filter(FG %nin% c("collector-filterer","shredder")) ## Respectively only have 1 and 2 points
+  group_by(cluster, FG,community, post_n) %>%
+  summarize(mean_area = mean(area)) %>%
+  ungroup() %>%
+  group_by(cluster, post_n, FG) %>% 
+  summarize(mean_area = mean(mean_area)) %>%
+  na.omit()
 
-ffg.summary %>% 
-  ggplot(aes(x = FG, y = mean_area)) +
-  geom_boxplot(outliers = F) + 
-  geom_point() +
-  theme_minimal() +
-  scale_x_discrete(labels = c("collector\ngatherer", "fish", "leaf","periphyton","predator","scraper","shredder"))
+  
+ ffg.summary %>%
+   ggplot(aes(x = FG, y = mean_area)) +
+     stat_summary(
+    fun = mean, 
+    fun.min = function(x) quantile(x, 0.025),   # lower bound of 95% CI
+    fun.max = function(x) quantile(x, 0.975),   # upper bound of 95% CI
+    geom = "pointrange",
+    shape = 18, size = 1.2,
+  ) + 
+   facet_wrap(~cluster)
+   
 
-## ANOVA comparing functional feeding group to mean area... the anova is singificant but only differences are between periphyton and something else... not that interesting
-model.summary = aov(data = ffg.summary, mean_area ~ FG) 
-(model.summary %>% summary() %>% unlist())[9] ## P value
-
-TukeyHSD(model.summary)
 
 ## FFG and overlap
 
-ffg.overlap = group.overlap %>% 
+ffg.overlap = df.long %>% 
   filter(group1 == "macroinvert") %>%
   left_join(ffg, by = c( "s1" = "FAMILY")) %>%
   rename("FG1" = "FG") %>%
@@ -619,16 +475,26 @@ ffg.overlap = group.overlap %>%
   mutate(ID = str_replace(ID, "collector-gatherer_predator", "predator_collector-gatherer"),
          ID = str_replace(ID, "collector-gatherer_scraper", "scraper_collector-gatherer"),
          ID = str_replace(ID, "collector-gatherer_shredder", "shredder_collector-gatherer"),
-         ID = str_replace(ID, "predator_scraper", "scraper_predator"))
+         ID = str_replace(ID, "predator_scraper", "scraper_predator")) %>%
+  ungroup() %>%
+  group_by(ID, post, Community) %>%
+  summarize(mean_overlap = mean(Values))  %>%
+  ungroup() %>%
+  group_by(ID, post) %>%
+  summarize(mean_overlap = mean(mean_overlap))
 
 ffg.overlap.order = c("collector-gatherer_collector-gatherer", "predator_predator", "scraper_scraper", "predator_collector-filterer", "predator_collector-gatherer", "predator_shredder", "scraper-collector-filterer", "scraper_collector-gatherer", "scraper_predator", "scraper_shredder", "shredder_collector-gatherer")
 ## FFG overlap with rare comparisons
 ffg.overlap %>%
-  ungroup() %>%
-  group_by(post,ID) %>%
-  summarize(Values = mean(Values)) %>%
-  ggplot(aes(x = factor(ID, ffg.overlap.order), y = Values)) + 
-  geom_boxplot() +
+
+  ggplot(aes(x = factor(ID, ffg.overlap.order), y = mean_overlap))+
+     stat_summary(
+    fun = mean, 
+    fun.min = function(x) quantile(x, 0.025),   # lower bound of 95% CI
+    fun.max = function(x) quantile(x, 0.975),   # upper bound of 95% CI
+    geom = "pointrange",
+    shape = 18, size = 1.2,
+  ) +
   #geom_jitter(alpha = .4) +
   scale_x_discrete(labels =  c("CG\nCG","P\nP", "Sc\nSc","P\nCF", "P\nCG",  "P\nSh",
                                "Sc\nCF","Sc\nCG","Sc\nP", 
@@ -655,26 +521,6 @@ ffg.overlap %>%
   theme_minimal() +
   ylab("Pairwise Overlap")
 
-ffg.aov.data = ffg.overlap %>%
-  ungroup() %>%
-  group_by(Community,ID) %>%
-  summarize(Values = mean(Values)) %>%
-  ungroup() %>%
-  group_by(ID) %>%
-  mutate(n = n()) %>%
-  filter(n > 2)
-
-lm_model = lm(Values ~ ID, data = ffg.aov.data)
-
-
-summary(lm_model)
-
-ffg.overlap.model  = aov(data = ffg.aov.data, Values ~ ID)
-tukey.ffg.overlap = TukeyHSD(ffg.overlap.model)
-tukey.ffg.overlap$ID %>% as.data.frame() %>%
-  filter(`p adj` < .05)
-### within and between FFGs ---------
-
 
 comp = ffg.overlap %>%
   ungroup() %>%
@@ -690,20 +536,5 @@ comp %>%
   ylab("Pairwise Overlap") +
   xlab("FFG") +
   scale_x_discrete(labels = c("Different", "Same"))
-
-t.test((comp %>% filter(comp == "same"))$Values, (comp %>% filter(comp == "diff"))$Values)
-
-## ANOVA with just the groups that have different FFGs
-comp.aov =comp %>% filter(comp == "diff") %>%
-  group_by(ID) %>%
-  mutate(n = n()) %>%
-  filter(n > 2) 
-comp.aov %>%
-  ggplot(aes(x = ID, y = Values)) + 
-  geom_boxplot() +
-  geom_point()
-comp.aov.model = aov(data = comp.aov, Values ~ ID) 
-TukeyHSD(comp.aov.model)
-
 
 

@@ -1,121 +1,32 @@
 `%nin%` = Negate(`%in%`)
 library(simmr)
 library(tidyverse)
+library(wesanderson)
+library(lme4)
+set.seed(123)
 ### SIMMR script to estimate trophic position using baseline mixtures
 
 
-# Taxon frame
+## Load in taxon data
 taxon_frame = read.csv("Data/CSVs/taxon_frame.csv") %>% unique()# rename column
-## Load in isotope measurement file
-data.iso =  read.csv("../1.clean_isotope/iso_measurement.csv") %>%
-  mutate(D13C = as.numeric(D13C)) #%>%
-  mutate(D13C = case_when(CATEGORY %nin% c("ALGA", "PLANT") ~ as.numeric(D13C) - 3.32 + .99 * (PER_C / PER_N),
-                          CATEGORY %in% c("ALGA", "PLANT") ~ as.numeric(D13C))) ## lipid correction factor
-## Read in isotope sample file
-sample = read.csv("../1.clean_isotope/isotope_sample.csv")
-
-data.iso %>%
-  filter
-
-## Create the data frame for the baselines
-baselines =  data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
-  left_join(taxon_frame) %>%
-  mutate(D15N = as.numeric(D15N),
-         D13C = as.numeric(D13C)) %>%
-  mutate(GROUP = str_replace(GROUP, "CLAM","BIVALVE"),
-         GROUP = str_replace(GROUP,"MUSSEL", "BIVALVE"))  %>%
-  mutate(graph_id = case_when(is.na(ORDER) == T ~ GROUP, 
-                              is.na(ORDER) == F ~ ORDER)) %>%
-  mutate(season = case_when(MONTH < 8 ~ "spring", MONTH > 7 ~ "fall")) %>%
-  unite("community.name", c(WATER, season), sep = ".") %>%
-  mutate(group.name = case_when(is.na(FAMILY)== T ~ GROUP, 
-                                is.na(FAMILY)==F ~ FAMILY)) %>%
-  ungroup() %>%
-  arrange(community.name) %>%
-  mutate(community = as.numeric(as.factor(community.name))) %>%
-  arrange(group.name) %>%
-  mutate(group = as.numeric(as.factor(group.name))) %>%
-  arrange(community, group) %>%
-  as.data.frame() %>%
-  filter(group.name %in% c("LEAF", "PERI", "ZOOP")) %>%
-  group_by(community, community.name, group.name) %>%
-    summarize(mean_c = mean(D13C, na.rm = T), 
-              mean_n = mean(D15N, na.rm = T), 
-              sd_c = sd(D13C, na.rm = T), 
-              sd_n = sd(D15N, na.rm = T)) %>%
-  na.omit() %>%
-  ungroup() %>%
-  complete(community.name, group.name) %>%
-  select(community, community.name, group.name, mean_c, mean_n, sd_c, sd_n)
-
-
-data.iso %>% 
-  filter(GROUP == "ZOOP", 
-         grepl( "SEL", ISO_YSAMP_N))
-
-## Adding in zooplankton samples that average across both spring and fall or use spring and fall data
-## adding the averaged information for HTL zoop in bc not enough 
-HTL.zoop = data.iso %>% 
-  filter(GROUP == "ZOOP", 
-          grepl( "HTL", ISO_YSAMP_N)) %>%
-  mutate(SEASON = c("fall", "spring", "spring"))
-
-baselines[24, 1] = 18; baselines[24, 2] = "HTL.fall"; baselines[24,3] = "ZOOP";
-baselines[24,4] = (HTL.zoop %>% filter(SEASON == "fall"))$D13C;
-baselines[24,5] = (HTL.zoop %>% filter(SEASON == "fall"))$D15N;
-baselines[24,6] = sd(HTL.zoop$D13C); 
-
-baselines[24,7] = sd(HTL.zoop$D15N)
-
-
-#baselines[24, 1] = 8; baselines[24, 2] = "HTL.fall"; baselines[24,3] = "ZOOP"
-#baselines[24,4] = -33.94; baselines[24,5] = 6.676667; baselines[24,6] = 1.105908
-#baselines[24,7] = 2.206362
-
-
-## adding the averaged information for SEL zoop in bc not enough 
-
-sel.zoop = data.iso %>% 
-  filter(GROUP == "ZOOP", 
-          grepl( "SEL", ISO_YSAMP_N)) %>%
-  mutate(SEASON = c("fall", "spring", "spring"))
-
-
-baselines[51, 1] = 18; baselines[51, 2] = "SEL.fall"; baselines[51,3] = "ZOOP";
-baselines[51,4] = (sel.zoop %>% filter(SEASON == "fall"))$D13C;
-baselines[51,5] = (sel.zoop %>% filter(SEASON == "fall"))$D15N;
-baselines[51,6] = sd(sel.zoop$D13C); 
-
-baselines[51,7] = sd(sel.zoop$D15N)
 
 
 
+## Load in isotope data
 
-## saving the baseline frame
-save(baselines, file = "Data/RData/baselines.RData")
-load(file = "Data/RData/baselines.RData")
-
-
+data.iso = read.csv("Data/CSVs/processed_data.csv")
+baselines = read.csv("Data/CSVs/baselines.csv")
   
+## Cluster and chemistry data
+cluster_chem = read.csv(file = "Data/CSVs/richness_update.csv") 
 
-write.csv(baselines %>%
-  pivot_wider(
-    names_from = group.name,
-    values_from = c(mean_c, sd_c, mean_n, sd_n) 
-  ) %>%
-    select(community.name, 
-           mean_c_LEAF, sd_c_LEAF, mean_n_LEAF, sd_n_LEAF,
-           mean_c_PERI, sd_c_PERI, mean_n_PERI, sd_n_PERI,
-           mean_c_ZOOP, sd_c_ZOOP, mean_n_ZOOP, sd_n_ZOOP),file = "Data/CSVs/baselines.csv", 
-  row.names = F)
 
 # visualize the resources
 baselines %>% separate(community.name, into = c("water", "season")) %>%
-  arrange(water)  %>%
-  print(n = 100)
+  arrange(water) 
 
-mixtures =  data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
-  left_join(taxon_frame) %>%
+mixtures =  data.iso %>% 
+  left_join(taxon_frame %>% select(ORDER, FAMILY, TAXON) %>% unique()) %>%
   mutate(D15N = as.numeric(D15N),
          D13C = as.numeric(D13C)) %>%
   mutate(GROUP = str_replace(GROUP, "CLAM","BIVALVE"),
@@ -135,9 +46,6 @@ mixtures =  data.iso %>% left_join(sample, by = "ISO_YSAMP_N") %>%
   as.data.frame() %>%
   filter(group.name %nin% c("LEAF", "PERI", "ZOOP", "FISH")) 
 
-
-save(mixtures, file = "Data/RData/mixtures.RData")
-load(file = "Data/RData/mixtures.RData")
 ## For loop through communities 
 
 
@@ -175,28 +83,16 @@ for(i in 1:length(unique(mixtures$community))){
   }
 }
 
+simmr.output = Reduce(full_join, output.list) ## data frame of SIMMR output
+
+#save(simmr.output, file = "Data/RData/simmr.output.RData")
+#load(file = "Data/RData/simmr.output.RData")
 
 
-output.list.clean = output.list[-which(is.na(output.list))]
-
-simmr.output = Reduce(full_join, output.list.clean)
-
-save(simmr.output, file = "Data/RData/simmr.output.RData")
-load(file = "Data/RData/simmr.output.RData")
-
-simmr.output %>% filter(rowname %in% c("LEAF", "ZOOP", "PERI")) %>%
-  select(rowname, mean, community.name) %>%
-  ggplot(aes(x = community.name, y = mean, fill = rowname)) + 
-  geom_bar(stat = "identity") + 
-  theme(axis.text.x = element_text(angle = 90, vjust = .5)) +
-  coord_flip()
-
-load("Data/RData/richness_cluster.RData")
-richness = richness %>% unite("community.name", c(WATER, season), sep = ".")
 
 ## All groups together
 simmr.output %>% 
-  left_join(richness, by = c("community.name")) %>%
+  left_join(cluster_chem, by = c("community.name")) %>%
   filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
   ggplot(aes(x = sechi.depth, y = mean, col =  rowname)) + 
   geom_point() + 
@@ -204,26 +100,12 @@ simmr.output %>%
 
 ## All groups where all three sources are measured
 filtered.simmr = simmr.output %>% 
-  left_join(richness, by = c("community.name")) %>%
+  left_join(cluster_chem, by = c("community.name")) %>%
   filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
   group_by(community.name) %>%
   mutate(groups = length(unique(rowname))) %>%
   filter(groups == 3) 
 
-filtered.simmr[, c(-3,-4,-5,-6,-7,-8,-9,-10)] %>%
-  select(-SurficialGeology, -DOC, -temp_do, 
-         -AirEqPh, -DIC, -F, -Fe, -K, -LabPh,
-         -Mg, -Mn, -Na, -Pb, -rate, -SCONDUCT, 
-         -Tal, -TDAI, -TotalP2, -TrueColor,
-         -Volume, -Zn, -CL, -Lake.Type, -Lake,
-         -ID, -min_do, -SO4) %>%
-  pivot_longer(c(Elevation:FUI.num), names_to = "metric", values_to = "values") %>%
-
-  ggplot(aes(x = values, y = mean, col =  rowname)) + 
-  theme_minimal() + 
-  geom_point() + 
-  geom_smooth(method = "lm") +
-  facet_wrap(~metric, scales = "free_x")
 
 
 
@@ -238,21 +120,27 @@ filtered.simmr %>%
   ylab("Source Contribution")
 
 
-zoop.test = simmr.output %>%
+zoop.test = filtered.simmr %>%
   filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
   group_by(community.name) %>%
   mutate(groups = length(unique(rowname))) %>%
   filter(groups == 3)  %>% 
-  left_join(richness, by = c("community.name")) %>%
-  filter(rowname %in% "PERI")
+  #left_join(cluster_chem, by = c("community.name")) %>%
+  filter(rowname %in% "PERI") %>%
+  separate(community.name, into = c("WATER", "SEASON")) %>% 
+  filter(WATER != "UCL")
+
+zoop.test %>% filter(sechi.depth > 5) %>%
+  select(sechi.depth, mean, WATER,  SEASON, everything())
 
 zoop.test %>%
   ggplot(aes(x = sechi.depth, y = mean)) + 
   geom_point() + 
-  geom_smooth(method = "lm")
+  geom_smooth(method = "lm") 
 
 
 
+lmer(data = zoop.test, mean ~ sechi.depth + (1 | WATER)) %>% summary()
 lm(data = zoop.test, mean ~ sechi.depth) %>% summary()
 
 
@@ -264,12 +152,13 @@ glm(data = zoop.test,mean ~ thermo_depth) %>% summary()
 
 ## filtering out lakes without all three sources and comparing across clusters
 simmr.output %>% 
-  left_join(richness, by = c("community.name")) %>%
+  left_join(cluster_chem %>%
+    mutate(cluster = if_else(is.na(cluster), first(na.omit(cluster)), cluster)) , by = c("community.name")) %>%
   filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
   group_by(community.name) %>%
   mutate(groups = length(unique(rowname))) %>%
   filter(groups == 3) %>%
-  ggplot(aes(x = cluster, y = mean, col = rowname)) +
+  ggplot(aes(x = as.factor(cluster), y = mean, col = rowname)) +
   geom_boxplot() +
   geom_point()
 
@@ -278,11 +167,11 @@ simmr.output %>%
 
 
 simmr.all = simmr.output %>% 
-  left_join(richness, by = c("community.name")) %>%
+  left_join(cluster_chem, by = c("community.name")) %>%
   filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
   group_by(community.name) %>%
   mutate(groups = length(unique(rowname))) %>%
-  filter(groups == 2) 
+  filter(groups == 3) 
  
   
 simmr.all %>% ggplot(aes(x = rowname, y = mean, fill = rowname)) + 
@@ -307,35 +196,12 @@ print(aov.simmr %>% summary())
 
 TukeyHSD(aov.simmr) 
 
-
-
-simmr.subset = simmr.output %>% 
-  left_join(richness, by = c("community.name")) %>%
-  filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
-  group_by(community.name) %>%
-  mutate(groups = length(unique(rowname))) %>%
-  filter(groups == 2) 
-
-
-
-simmr.subset %>%  ggplot(aes(x = rowname, y = mean, fill = rowname)) + 
-  geom_boxplot() +
-  geom_point() +
-  theme_minimal() + 
-  scale_fill_manual(values = wes_palette("Darjeeling1")) + 
-  labs(fill = "Source") + 
- # scale_x_discrete(labels = c("Leaf", "Periphyton", "Zooplankton")) +
-  theme(axis.title.x = element_blank(),
-        legend.position = "none") +
-  ylab("Average Source Contribution")
-
-
 ### SIMMR broken up with the two source models separated but included in the graph
 
 source_labels = c("2" = "Two Source Model", "3" = "Three Source Model")
 
 simmr.output %>% 
-  left_join(richness, by = c("community.name")) %>%
+  left_join(cluster_chem, by = c("community.name")) %>%
   filter(rowname %in% c("ZOOP", "LEAF", "PERI")) %>%
   mutate(rowname = str_replace(rowname, "ZOOP", "Zooplankton"), 
          rowname = str_replace(rowname, "PERI", "Periphyton"), 
