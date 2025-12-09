@@ -18,6 +18,38 @@ taxon_frame = read.csv("Data/CSVs/taxon_frame.csv") %>% unique()# rename column
 data.iso = read.csv(file = "Data/CSVs/processed_data.csv")
 data = read.csv(file = "Data/CSVs/siber_data.csv")
 
+## SIBER formatted frame 
+data = data.iso %>% ## This one is formatted for SIBER
+  left_join(taxon_frame %>% select(TAXON, FAMILY, ORDER) %>% unique()) %>% ## Taxomonic metadata join
+  mutate(D15N = as.numeric(D15N),
+         D13C = as.numeric(D13C)) %>%
+  mutate(GROUP = str_replace(GROUP, "CLAM","BIVALVE"),
+         GROUP = str_replace(GROUP,"MUSSEL", "BIVALVE"))  %>%
+  mutate(graph_id = case_when(is.na(ORDER) == T ~ GROUP, 
+                              is.na(ORDER) == F ~ ORDER)) %>%
+  mutate(season = case_when(MONTH < 8 ~ "spring", MONTH > 7 ~ "fall")) %>%
+  unite("community.name", c(WATER, season), sep = ".") %>%
+  mutate(group.name = case_when(is.na(FAMILY)== T ~ GROUP, 
+                           is.na(FAMILY)==F ~ FAMILY))%>%
+  group_by(community.name, group.name) %>% 
+  mutate(total = n()) %>%
+  filter(total > 3) %>%
+  select( D13C, D15N, group.name, community.name) %>%
+  rename(iso1 = D13C,
+         iso2 = D15N) %>%
+  na.omit() %>%
+  ungroup() %>%
+  arrange(community.name) %>%
+  mutate(community = as.numeric(as.factor(community.name))) %>%
+  filter(group.name %nin% c("LEAF", "PERI", "INSECT",
+                            "ZOOP", "CRAY", "SIL")) %>% ## Filter out groups not to include in isotopic niche analysis
+  arrange(group.name) %>% ## Needs to be arranged here because SIBER orders things numerically 
+  mutate(group.name = tolower(group.name)) %>%
+  mutate(group = as.numeric(as.factor(group.name))) %>% ## Assign your groups in alphabetical order
+  arrange(community, group) %>%
+  as.data.frame() %>%
+  select(iso1, iso2, group, community, group.name, community.name) ## keep group and community name for legend
+
 
 ## Legends for plotting
 legend = data %>% select(group.name,group) %>%
@@ -28,6 +60,8 @@ legend = data %>% select(group.name,group) %>%
 
 community.legend = data %>% select(community, community.name) %>%
   unique() ## 
+
+# save(community.legend, file = "Data/RData/community.legend.RData")
 
 ## Cluster and chemistry data -- cluster from `Step1_NMDS.R`
 cluster_chem = read.csv(file = "Data/CSVs/richness_update.csv") %>%
