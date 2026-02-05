@@ -8,6 +8,8 @@ library(tidyverse)
 library(lme4)
 
 set.seed(123)
+
+
 ## Visualization setup
 order_colors = wes_palette("Darjeeling1", type = "continuous", n = 8)
 order_levels = c("odonata", "ephemeroptera", "hemiptera", "gastropoda",
@@ -52,6 +54,8 @@ mixtures =  data.iso %>%
   arrange(community, group) %>%
   as.data.frame() %>%
   filter(group.name %nin% c("LEAF", "PERI", "ZOOP", "FISH")) 
+
+
 
 
 ## For loop through communities 

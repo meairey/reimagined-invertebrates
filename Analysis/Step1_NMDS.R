@@ -61,10 +61,12 @@ nmds = metaMDS(nmds.dat, distance = "jaccard", trymax = 100) ## Do not run this 
 site_scores = as.data.frame(scores(nmds, display = "sites"))
 
 
+
 # Run for loop and use elbow method to determine optimal clusters --------------
 ## test k 
 # 
 wss = numeric()
+
 
 # Use a for loop to run k-means for k = 1 to 10
 for (k in 1:10) {
@@ -90,6 +92,7 @@ kmeans_result = kmeans(site_scores, centers = k)
 
 # Add the cluster results to the site_scores data frame
 site_scores$cluster = as.factor(kmeans_result$cluster)
+
 #save(file = "Data/RData/site_scores.RData", site_scores)
 #load(file = "Data/RData/site_scores.RData")
 #load(file = "Data/RData/simmr.output.RData")
@@ -103,6 +106,8 @@ sites = as.data.frame(as.matrix(nmds$points)) %>%
   rownames_to_column(var = "ID") %>%
   #separate(ID, into = c("season", "water")) %>% 
   mutate(cluster = as.factor(kmeans_result$cluster))
+
+
 
 species = as.data.frame(as.matrix(nmds$species)) %>%
   rownames_to_column(var = "ID") 
@@ -197,20 +202,17 @@ taxon_frame = read.csv("Data/CSVs/taxon_frame.csv")
 ## Chemistry -------------
 
 
-load("Data/RData/chem_data.RData")
-
-chemistry = chemistry %>%
-  rename(depth.5mgL = min_depth,
-         temp.5mgL = min_temp) %>%
-  filter(season == "fall") %>%
-  left_join(cluster.mat) 
+chemistry = read.csv("Data/CSVs/richness_update.csv") %>%
+  separate(community.name, into = c("WATER", "season")) %>%
+  filter(season == "fall") #%>%
+ # left_join(cluster.mat) 
 ## species richness trends
 
 richness = full %>%
   select(WATER, MONTH, FAMILY) %>% ## I've been calculating richness by genus. Now switching to family
   group_by(WATER, MONTH) %>%
   unique() %>%
-  summarize(richness = n()) %>%
+  summarize(richness.2 = n()) %>%
   rename("season" = "MONTH") %>%
   mutate(season = tolower(season)) %>%
   left_join(chemistry)
@@ -225,27 +227,15 @@ richness = full %>%
 
 
 
-## excluding SO4 because I'm not quite convinced that the measurements are the same
-test = read.csv(file = "Data/CSVs/richness.csv")
-
-richness = richness %>%
-  ungroup() %>%
-  mutate(DOC_update = as.numeric(test$DOC_update))
-
-
 richness.simple = richness %>%
   ungroup() %>%
-  select(-SurficialGeology, -DOC, -temp_do, 
-         -AirEqPh, -DIC, -F, -Fe, -K, -LabPh,
-         -Mg, -Mn, -Na, -Pb, -rate, -SCONDUCT, 
-         -Tal, -TDAI, -TotalP2, -TrueColor,
-         -Volume, -Zn, -CL, -Lake.Type, -Lake,
-         -ID, -min_do, -SO4, -Pond_num, -Lake, 
-         -TotalP, -ANC, -CA, -FUI.num, -NH4, -FieldPh, -NO3, 
-         -SIO2) %>%
+  select(-SurficialGeology,  -temp_do,
+         -DOC_update_text,
+         -Volume, -Lake.Type, -Lake,
+         -ID, -min_do,  -Pond_num, -Lake) %>%
   select(cluster, everything()) %>%
   ungroup() %>%
-  pivot_longer(4:14, names_to = "metric", values_to = "values") %>%
+  pivot_longer(4:13, names_to = "metric", values_to = "values") %>%
   select(-season) %>%
   unique() %>% 
   na.omit()
@@ -272,7 +262,27 @@ env_fit.vectors = cbind(env_fit$vectors$arrows %>% as.data.frame(), env_fit$vect
 
 
 
+## Envfit Table Supplement
+env_fit$vectors$arrows %>% 
+  as.matrix()  %>%
+  as.data.frame() %>%
+  mutate(p.val = env_fit$vectors$pvals, 
+         r = round(env_fit$vectors$r, digits = 2)) %>%
+  arrange(p.val, r) %>%
+  rownames_to_column(var = "Metric") %>%
+  filter(Metric %nin% c("DOC.1", "thermo_temp")) %>%
+  rename(`Pr(>r)` = "p.val", 
+         `R2` = "r") %>%
+  mutate(Metric = str_replace(Metric, "richness", "Richness"),
+         Metric = str_replace(Metric, "thermo_depth", "Thermocline Depth"),
+         Metric = str_replace(Metric, "surface_area", "Surface Area"), 
+         Metric = str_replace(Metric, "max_depth", "Maximum Depth"),
+         Metric = str_replace(Metric, "depth.5mgL", "DD05"),
+         Metric = str_replace(Metric, "temp.5mgL", "TDO5 Depth"),
+         Metric = str_replace(Metric, "sechi.depth", "Secchi Depth"), 
+         Metric = str_replace(Metric, "DOC_update", "DOC")) -> Table.S2
 
+write.csv(Table.S2, "Data/CSVs/TableS2_envfit.csv", row.names =  F)
 
 
 
@@ -280,7 +290,7 @@ env_fit.vectors = cbind(env_fit$vectors$arrows %>% as.data.frame(), env_fit$vect
 
 ### Taxa by order across clusters
 
-write.csv(richness, file = "Data/CSVs/richness.csv")
+#write.csv(richness, file = "Data/CSVs/richness.csv")
 
 ### Functional feeding groups across clusters
 
@@ -382,3 +392,8 @@ nmds.dat %>%
   xlab("Frequency within Cluster") 
 
   
+# Table of lake characeristics 
+
+
+
+
