@@ -1,12 +1,46 @@
-# Trophic Position -----------
-# Using mixing model results
-load(file = "Data/RData/simmr_full.RData")
-
 ## Setup ----------------------------
 `%nin%` = Negate(`%in%`)
 library(wesanderson)
 library(simmr)
 library(tidyverse)
+# Trophic Position -----------
+# Using mixing model results
+load(file = "Data/RData/simmr_full.RData")
+## Load in isotope data
+
+data.iso = read.csv("Data/CSVs/processed_data.csv")
+baselines = read.csv("Data/CSVs/baselines.csv")
+
+## Taxon frame 
+
+taxon_frame = read.csv("Data/CSVs/taxon_frame.csv") %>% unique()# rename column
+
+## Cluster and chemistry data
+cluster_chem = read.csv(file = "Data/CSVs/richness_update.csv") 
+
+## Mixtures for SIMMR model (invertebrate observations)
+mixtures =  data.iso %>% 
+  left_join(taxon_frame %>% select(ORDER, FAMILY, TAXON) %>% unique()) %>%
+  mutate(D15N = as.numeric(D15N),
+         D13C = as.numeric(D13C)) %>%
+  mutate(GROUP = str_replace(GROUP, "CLAM","BIVALVE"),
+         GROUP = str_replace(GROUP,"MUSSEL", "BIVALVE"))  %>%
+  mutate(graph_id = case_when(is.na(ORDER) == T ~ GROUP, 
+                              is.na(ORDER) == F ~ ORDER)) %>%
+  mutate(season = case_when(MONTH < 8 ~ "spring", MONTH > 7 ~ "fall")) %>%
+  unite("community.name", c(WATER, season), sep = ".") %>%
+  mutate(group.name = case_when(is.na(FAMILY)== T ~ GROUP, 
+                                is.na(FAMILY)==F ~ FAMILY)) %>%
+  ungroup() %>%
+  arrange(community.name) %>%
+  mutate(community = as.numeric(as.factor(community.name))) %>%
+  arrange(group.name) %>%
+  mutate(group = as.numeric(as.factor(group.name))) %>%
+  arrange(community, group) %>%
+  as.data.frame() %>%
+  filter(group.name %nin% c("LEAF", "PERI", "ZOOP", "FISH")) 
+
+
 
 
 ## Pivoting and simplifying SIMMR results
@@ -24,6 +58,8 @@ baselines.wide = baselines %>%
   ungroup() %>%
   select(community.name, group.name, mean_n) %>%
   pivot_wider(names_from = group.name, values_from = mean_n)
+
+
 
 ## Trophic position calculations
 #### Includes both the weighted and unweighted versions of the calculation
@@ -73,18 +109,20 @@ trophic_position.graph = trophic.position %>% ## Tall version
   filter(count > 10) %>%
   ggplot(aes(y = factor(FAMILY, rev(TP.family$FAMILY)),
              x = trophic_position_weighted,
-             fill = factor(ORDER, TP.order$ORDER))) + 
-  geom_boxplot(alpha = .8) +
-  geom_point(alpha = .3) + 
-  theme_minimal(base_size = 14) +
+            # fill = factor(ORDER, TP.order$ORDER)
+            )) + 
+  geom_point(alpha = .2) + 
+  geom_boxplot(alpha = .5, fill = "lightgray") +
+  
+  theme_minimal(base_size = 12) +
   scale_fill_manual("Order", values = wes_palette("Darjeeling1", type = "continuous", n = 6)) +
   xlab("Trophic Position") +
   theme(axis.title.y = element_blank(),
-        legend.position = "bottom") + 
+        legend.position = "right") + 
   scale_x_log10()
+trophic_position.graph
 
-
-ggsave(plot = trophic_position.graph, file = "Graphics/Figures/Figure5A_TrophicPosition.pdf", width = 6, height = 6)
+ggsave(plot = trophic_position.graph, file = "Graphics/Figures/Figure5A_TrophicPosition.pdf", width = 3.5, height = 4.5)
 
 ## Trophic position table to include all the other taxa I weeded out of main figure for ease of visualization
 
@@ -102,6 +140,36 @@ trophic.position %>%
 
 write.csv(TP.table, "Graphics/Tables/Trophic_Position.Table.csv", 
           row.names = F)
+
+
+
+
+
+
+### Comparing trophic clusters
+
+trophic.position %>% 
+  left_join(cluster_chem) %>%
+  filter(!is.na(cluster)) %>%
+  group_by(community.name, cluster, FAMILY) %>%
+  summarize(TP = mean(trophic_position_weighted)) %>% # mean TP per family per waterbody
+ # filter(FAMILY %in% c("aeshnidae", "gomphidae", "libellulidae", "corduliidae")) %>%
+  ggplot(aes(x = as.factor(cluster), y = TP, fill = as.factor(cluster))) + 
+  geom_boxplot() + 
+  geom_point() + 
+  theme_minimal(base_size = 15) + 
+  ylab("Trophic Position")  + 
+  scale_x_discrete(labels = c(
+  "1" = "Shallow\nthermocline", 
+  "3" = "Deep\nthermocline", 
+  "2" = "Diverse,\ndeep thermocline"
+))  +
+  theme(axis.title.x = element_blank(),
+        legend.position = "none") +
+   scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) 
+
+
+
 
 #### Figure S5 ---------------
 ## Seasonal affect of trophic position
@@ -175,27 +243,7 @@ df_dist = family_means.tp %>%
 
 df_dist
 
-### Comparing trophic clusters
 
-trophic.position %>% 
-  left_join(cluster_chem) %>%
-  filter(!is.na(cluster)) %>%
-  group_by(community.name, cluster, FAMILY) %>%
-  summarize(TP = mean(trophic_position_weighted)) %>% # mean TP per family per waterbody
- # filter(FAMILY %in% c("aeshnidae", "gomphidae", "libellulidae", "corduliidae")) %>%
-  ggplot(aes(x = as.factor(cluster), y = TP, fill = as.factor(cluster))) + 
-  geom_boxplot() + 
-  geom_point() + 
-  theme_minimal(base_size = 15) + 
-  ylab("Trophic Position")  + 
-  scale_x_discrete(labels = c(
-  "1" = "Shallow\nthermocline", 
-  "3" = "Deep\nthermocline", 
-  "2" = "Diverse,\ndeep thermocline"
-))  +
-  theme(axis.title.x = element_blank(),
-        legend.position = "none") +
-   scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) 
 
 
 
@@ -213,7 +261,9 @@ trophic_chemistry = trophic.position %>%
   group_by(FAMILY) %>%
   mutate(total = n()) %>%
   filter(total > 10) %>%
-  select(-total) 
+  select(-total) %>% 
+  mutate(across(max_depth:sechi.depth,
+         ~ as.numeric(scale(.x))))
 
 
 library(lmtest) 
@@ -235,12 +285,7 @@ for(i in 1:length(vars)){
 }
 library(emmeans)
 ## Significant results include DOC_update, depth.5gmL, temp5mgL, and secchi depth
-ffgs = read.csv("Data/CSVs/FFGS.csv") %>%
-  select(FAMILY, FG) %>%
-  unique() %>%
-  arrange(FG) %>%
-  mutate(FG_factor = as.numeric(as.factor(FG)))
-ffgs
+
 # Secchi depth
 
 lmer.secchi = lmerTest::lmer(trophic_position_weighted ~ sechi.depth * FAMILY + (1|WATER), data = trophic_chemistry)
@@ -313,13 +358,12 @@ fam_TDO5 <- emtrends(lmer.TDO5,
 
 
 
-
+### Full graph of emmeans results
 trophic_position_lmer.graph = rbind(fam_secchi, fam_DOC) %>% 
   rbind(fam_DDO5, fam_TDO5)  %>%
   left_join(taxon_frame %>% 
               select(FAMILY,ORDER) %>%
               unique()) %>%
-  arrange()
   mutate(metric = factor(metric, levels = c("DOC", "Secchi", "DDO5", "TDO5"))) %>%
   ggplot(aes(x = as.numeric(trend), y = factor(FAMILY, rev(TP.family$FAMILY)), color = factor(ORDER, TP.order$ORDER))) +
   geom_pointrange(aes(xmin = as.numeric(lower.CL), xmax = as.numeric(upper.CL),
@@ -334,12 +378,37 @@ trophic_position_lmer.graph = rbind(fam_secchi, fam_DOC) %>%
          legend.box = "vertical") + 
   facet_wrap(~metric, scales = "free_x") +
   guides(color = guide_legend(nrow = 2), 
-         shape = guide_legend(nrow = 2) ) 
-
+         shape = guide_legend(nrow = 2)) 
 trophic_position_lmer.graph
+## Simplified graph of emmeans results
 
+trophic_position_lmer.graph = rbind(fam_secchi, fam_DOC) %>% 
+  rbind(fam_DDO5, fam_TDO5)  %>%
+  left_join(taxon_frame %>% 
+              select(FAMILY,ORDER) %>%
+              unique()) %>%
+  mutate(metric = factor(metric, levels = c("DOC", "Secchi", "DDO5", "TDO5")), 
+         trend = as.numeric(trend)) %>% 
+  #filter(sig == "TRUE") %>%
+  ggplot(aes(x = metric,
+             y = factor(FAMILY, rev(TP.family$FAMILY)), 
+             fill = trend,
+             label = round(trend, digits = 2),
+              alpha = sig)) + 
+  geom_tile() + 
+  geom_text(col = "black", size = 5) +
 
-ggsave(plot = trophic_position_lmer.graph, file = "Graphics/Figures/Figure5B_TrophicPosition.pdf", width = 5.5, height = 7)
+  scale_fill_gradientn("Slope",colors = c(wes_palette("Zissou1", n = 5, type = "discrete")[1], 
+                                    wes_palette("Zissou1", n = 5, type = "discrete")[3], 
+                                    wes_palette("Zissou1", n = 5, type = "discrete")[5])) +
+  theme_minimal(base_size = 12) + 
+  theme(axis.title.y = element_blank()) +
+  xlab("LMER Results") +
+  scale_alpha_manual("Significance", labels = c(0,1), values = c(0,1)) +
+  guides(alpha = "none")
+trophic_position_lmer.graph
+ggsave(plot = trophic_position_lmer.graph, file = "Graphics/Figures/Figure5B_TrophicPosition.pdf", width = 5, height = 4.5)
+
 
 library(gridExtra)
 grid.arrange(DDO5, TDO5, secchi, DOC)

@@ -138,9 +138,11 @@ simmr.summary = simmr.full %>%
   filter(groups == 3) %>%
   ungroup() %>%
   group_by(community, rowname) %>%
-  summarize(mean_peri = mean(mean)) %>%
+  summarize(mean_peri = mean(mean) * 100) %>%
   left_join(cluster_chem, by = c("community" = "community.name")) %>%
-  as.data.frame()
+  as.data.frame() %>%
+  select(-DOC_update_text, -temp_do) %>% 
+  mutate(across(.cols = max_depth:sechi.depth, scale))
 
 simmr.summary$Lake %>% unique() %>% length() ## 9 unique lakes used in this analysis
 
@@ -156,8 +158,28 @@ simmr.summary%>%
 
 ## Both periphyton and zooplankton show significant differences while leaves do not
 lm(data = simmr.summary %>% filter(rowname == "ZOOP"), mean_peri ~ sechi.depth) %>% summary()
+
 lmer(data = simmr.summary %>% filter(rowname == "ZOOP"), mean_peri ~ sechi.depth + (1|Lake)) %>% summary()
 
+## Looping for SIMMER LMER
+
+vars = colnames(simmr.summary)[11:20]
+vars
+for(i in 1:length(vars)){
+  for(h in 1:3){
+    loop.simmr = simmr.summary %>% filter(rowname == unique(simmr.summary$rowname)[h])
+    
+    form = as.formula(paste0("mean_peri ~ ", vars[i], " + (1|Lake)"))
+    lmer.run = lmerTest::lmer(form, data = loop.simmr) %>%
+    summary()
+    if(lmer.run$coefficients[2,5] < .05){
+      print(vars[i])
+      print(unique(simmr.summary$rowname)[h])
+      print(lmer.run$coefficients[2,])
+    }
+  }
+}
+  
 
 ##### Table S5: SIMMR % --------------
 

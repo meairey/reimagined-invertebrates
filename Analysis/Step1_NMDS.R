@@ -332,27 +332,28 @@ ggplot(sites, aes(x = MDS1, y = MDS2)) +
 ## Significant env.fit metrics by cluster 
 richness.simple %>%
   filter(metric %in% rownames(env_fit.vectors)) %>%
+  filter(metric %nin% "richness.2") %>%
   mutate(Metric = case_when(metric == "richness" ~ "Richness", 
                             metric == "surface_area" ~ "Surface area (ha)", 
                             metric == "thermo_depth" ~ "Thermocline depth (m)")) %>%
-  ggplot(aes(x = cluster, y = values, fill = cluster)) + 
+  ggplot(aes(x = as.factor(cluster), y = values, fill = as.factor(cluster))) + 
   geom_boxplot() + 
   theme_minimal(base_size = 12) +
-  facet_wrap(~Metric, scales = "free") + 
+  facet_wrap(~Metric, scales = "free_y", ncol = 1) + 
   geom_point() +
   scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) +
-  theme(legend.position = "none") + 
-  xlab("Cluster") +
-  theme(axis.title.y = element_blank(), 
-        axis.text.x = element_text(angle = 0, hjust = 0)) +
+  theme(legend.position = "none",
+        axis.title.x = element_blank(), 
+        axis.title.y = element_blank(), 
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
   scale_x_discrete(labels = c(
   "1" = "Deep\nthermocline", 
   "2" = "Intermediate\nthermocline", 
   "3" = "Shallow,\nthermocline"
 )) + 
-  theme(plot.margin = margin(t = 5, r = 20, b = 5, l = 5))
+  theme(plot.margin = margin(t = 5, r = 20, b = 5, l = 5)) -> Figure1B_boxplots
   
-  
+ggsave(Figure1B_boxplots, file = "Graphics/Figures/Figure1B_boxplots.pdf", width = 2.5, height = 5)
   
 ### Figure 3 ------------------------  
 nmds.dat %>%
