@@ -3,6 +3,8 @@
 library(wesanderson)
 library(simmr)
 library(tidyverse)
+library(lmerTest)
+library(emmeans)
 # Trophic Position -----------
 # Using mixing model results
 load(file = "Data/RData/simmr_full.RData")
@@ -10,14 +12,34 @@ load(file = "Data/RData/simmr_full.RData")
 
 data.iso = read.csv("Data/CSVs/processed_data.csv")
 baselines = read.csv("Data/CSVs/baselines.csv")
+load("Data/RData/cluster.mat.RData")
+load(file = "Data/RData/community.legend.RData")
+
+baselines %>% 
+  group_by(community.name) %>%
+  select(community.name,group.name,  mean_c) %>%
+  pivot_wider(names_from = group.name, values_from = mean_c) %>% 
+  ungroup() %>%
+  mutate(dif = ZOOP - LEAF) %>% 
+  left_join(cluster.mat %>% 
+              unite("community.name", c(WATER, season), sep = ".")) %>% 
+  filter(!is.na(cluster)) %>%
+  ggplot(aes(x = cluster, y = dif)) + 
+  geom_point()
+
+
 
 ## Taxon frame 
 
 taxon_frame = read.csv("Data/CSVs/taxon_frame.csv") %>% unique()# rename column
 
 ## Cluster and chemistry data
-cluster_chem = read.csv(file = "Data/CSVs/richness_update.csv") 
-
+cluster_chem = read.csv(file = "Data/CSVs/chemistry_seasonal.csv") %>%
+  unite("community.name", c(WATER, season), sep = ".") %>%
+  #unite("ID", WATER, season, sep = ".") %>%
+  left_join(community.legend) %>%
+  left_join(cluster.mat %>%
+              unite(ID, c("WATER", "season"), sep = "."))
 ## Mixtures for SIMMR model (invertebrate observations)
 mixtures =  data.iso %>% 
   left_join(taxon_frame %>% select(ORDER, FAMILY, TAXON) %>% unique()) %>%
@@ -58,7 +80,6 @@ baselines.wide = baselines %>%
   ungroup() %>%
   select(community.name, group.name, mean_n) %>%
   pivot_wider(names_from = group.name, values_from = mean_n)
-
 
 
 ## Trophic position calculations
@@ -122,7 +143,7 @@ trophic_position.graph = trophic.position %>% ## Tall version
   scale_x_log10()
 trophic_position.graph
 
-ggsave(plot = trophic_position.graph, file = "Graphics/Figures/Figure5A_TrophicPosition.pdf", width = 3.5, height = 4.5)
+#ggsave(plot = trophic_position.graph, file = "Graphics/Figures/Figure5A_TrophicPosition.pdf", width = 3.5, height = 4.5)
 
 ## Trophic position table to include all the other taxa I weeded out of main figure for ease of visualization
 
@@ -138,115 +159,49 @@ trophic.position %>%
          "N" = "n") -> TP.table
 
 
-write.csv(TP.table, "Graphics/Tables/Trophic_Position.Table.csv", 
-          row.names = F)
+#write.csv(TP.table, "Graphics/Tables/Trophic_Position.Table.csv", row.names = F)
 
 
+## Modelling seasonal effect
 
 
+season.trophic = lmer(trophic_position_weighted ~ Season*FAMILY + (1|Water),
+                      data = trophic.position %>% 
+                        separate(community.name, into = c("Water", "Season")) %>%
+                        group_by(Water, FAMILY) %>%
+                        mutate(season_distinct = length(unique(Season))) %>%
+                        filter(season_distinct > 1) %>%
+                        select(-season_distinct))
+summary(season.trophic)
+fe = summary(season.trophic)$coefficients %>% 
+  as.data.frame() %>% 
+  rownames_to_column("term") %>% 
+ filter(term %in% c("(Intercept)", "Seasonspring")) 
 
-
-### Comparing trophic clusters
-
-trophic.position %>% 
-  left_join(cluster_chem) %>%
-  filter(!is.na(cluster)) %>%
-  group_by(community.name, cluster, FAMILY) %>%
-  summarize(TP = mean(trophic_position_weighted)) %>% # mean TP per family per waterbody
- # filter(FAMILY %in% c("aeshnidae", "gomphidae", "libellulidae", "corduliidae")) %>%
-  ggplot(aes(x = as.factor(cluster), y = TP, fill = as.factor(cluster))) + 
-  geom_boxplot() + 
-  geom_point() + 
-  theme_minimal(base_size = 15) + 
-  ylab("Trophic Position")  + 
-  scale_x_discrete(labels = c(
-  "1" = "Shallow\nthermocline", 
-  "3" = "Deep\nthermocline", 
-  "2" = "Diverse,\ndeep thermocline"
-))  +
-  theme(axis.title.x = element_blank(),
-        legend.position = "none") +
-   scale_fill_manual(values = wes_palette("Royal2")[c(3,1,5)]) 
-
-
-
-
+season.emmeans = emmeans(season.trophic, ~ Season | FAMILY) 
+seasons.contrast = contrast(season.emmeans, method = "pairwise")
+# get confidence intervals
+season.contrast.ci = confint(seasons.contrast) %>% 
+  as.matrix() %>% as.data.frame()
+ 
 #### Figure S5 ---------------
 ## Seasonal affect of trophic position
-## Diamond points (family means across waterbodies)
-family_means.tp = trophic.position %>%
 
-  separate(community.name, into = c("water", "season")) %>% 
-  group_by(FAMILY, water) %>%
-  mutate(season.distinct = length(unique((season)))) %>%
-  filter(season.distinct > 1) %>%
-  ungroup() %>%
-  group_by(water, season, FAMILY)  %>%
-  summarize(count = n(),
-            mean_tp = mean(trophic_position_weighted)) %>% ## Average for each family per waterbody
-  filter(count > 3) %>%
-  ungroup() %>%
-  group_by(season, FAMILY) %>%
-  summarize(mean_overall.tp = mean(mean_tp)) %>% ## Average for each family across all waterbodies
-  pivot_wider(names_from = season, values_from = mean_overall.tp) %>% 
-  na.omit() %>%
-  mutate(mean_diff = spring - fall)
-
-mean_diff.tp = mean(family_means.tp$mean_diff)
-
-## Small points (family means within each water body)
-family_water.TP = trophic.position %>% 
- 
-  separate(community.name, into = c("water", "season")) %>%
-  group_by(water, season, FAMILY) %>%
-  summarize(count = n(), 
-            mean_tp = mean(trophic_position_weighted)) %>%
-  filter(count > 3) %>%
-  ungroup() %>% 
-  select(-count) %>%
-  pivot_wider(names_from = season, values_from = mean_tp) %>%
-  na.omit() %>%
-  mutate(mean_diff = spring - fall)
-
-# New plot
-
-ggplot() + 
-  theme_minimal(base_size = 14) +
-  geom_point(data = family_water.TP, aes(x = mean_diff, y = FAMILY), col = "gray") +
-  geom_point(data = family_means.tp, aes(x = mean_diff, y = FAMILY), size = 6, shape = "diamond") +
-  geom_vline(aes(xintercept = 0)) +
-  geom_vline(aes(xintercept = mean_diff.tp), lty = "dashed") +
+season.emmean.graph = season.contrast.ci %>% 
+  mutate(estimate = as.numeric(estimate), 
+         lower.CL = as.numeric(lower.CL), 
+         upper.CL = as.numeric(upper.CL), 
+         sig  = sign(lower.CL) == sign(upper.CL)) %>%
+  ggplot(aes(x = estimate, y = FAMILY, col = sig)) + 
+  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL)) +
+  theme_minimal(base_size = 12) + 
+  geom_vline(xintercept = 0, lty = "dashed")  +
+  scale_color_manual("Significance", values = c("gray", "black"),
+                     labels = c("Insignificant", "Significant")) + 
   theme(axis.title.y = element_blank()) +
-  xlab("Seasonal Difference in TP") -> FigureS5
-ggsave(file = "Graphics/Figures/Figure_S5.pdf", plot = FigureS5, width = 7, height = 5, units = "in")
+  xlab("Seasonal TP Difference (95% CI)")
 
-## Plot
-ggplot() +
-  theme_minimal(base_size = 14) +
-  geom_point(data = family_water.TP, aes(x = spring, y = fall, col = FAMILY), alpha = .3) +
-  geom_point(data = family_means.tp, aes(x = spring, y = fall, col = FAMILY), shape = "diamond", size = 4 ) +
-  geom_abline(slope = 1, intercept = 0) + 
-  scale_color_manual("Family", values = wes_palette("Darjeeling1", type = "continuous", n = 11)) + 
-  xlab("Spring TP") + ylab("Fall TP") -> FigureS5
-
-
-
-## Seasonal outliers
-df_dist = family_means.tp %>%
-  mutate(
-    # perpendicular distance to the line y = x
-    dist_1to1 = abs(fall - spring) / sqrt(2),
-
-    # sign (positive = above line, negative = below)
-    signed_dist = (fall - spring) / sqrt(2)
-  )
-
-df_dist
-
-
-
-
-
+#ggsave(season.emmean.graph, file = "Graphics/Figures/Supp_Figure_5.pdf", width = 5, height = 4)
 
 # Note - no real difference in trophic position between clusters (scaled or unscaled) 12/8/25
 ## No real difference in trophic position across chemistry 
@@ -255,18 +210,17 @@ df_dist
 
 
 trophic_chemistry = trophic.position %>% 
-  left_join(read.csv("Data/CSVs/richness_update.csv")) %>%
+  left_join(cluster_chem) %>%
   separate(community.name, into = c("WATER", "season")) %>%
-  select(-temp_do, -DOC_update_text, -SurficialGeology, -Lake.Type) %>%
   group_by(FAMILY) %>%
   mutate(total = n()) %>%
   filter(total > 10) %>%
   select(-total) %>% 
-  mutate(across(max_depth:sechi.depth,
+  select(Pond_num, WATER, season,  FAMILY, GROUP, cluster, community, Lake, everything()) %>%
+  mutate(across(TDO5:Volume,
          ~ as.numeric(scale(.x))))
 
 
-library(lmtest) 
 
 vars = colnames(trophic_chemistry)[15:26]
 
@@ -280,15 +234,52 @@ for(i in 1:length(vars)){
     print(vars[i])
     print(lmer.run$coefficients[2,])
   }
-
-  
 }
-library(emmeans)
+
 ## Significant results include DOC_update, depth.5gmL, temp5mgL, and secchi depth
+
+## Checking between lm and lmer
+m.fixed = lm(trophic_position_weighted ~ sechi.depth * FAMILY,
+             data = trophic_chemistry)
+
+m.random <- lmerTest::lmer(trophic_position_weighted ~ sechi.depth * FAMILY + (1|WATER),
+                           data = trophic_chemistry)
+AIC(m.fixed,m.random)
+
+m.nointer = lmerTest::lmer(trophic_position_weighted ~ sechi.depth + (1|WATER),
+                           data = trophic_chemistry)
+
+m.inter <- lmerTest::lmer(trophic_position_weighted ~ sechi.depth * FAMILY + (1|WATER),
+                           data = trophic_chemistry)
+AIC(m.nointer,m.inter)
+
+
+## Combined model
+
+lmerTest::lmer(trophic_position_weighted ~ DOC_update *  FAMILY + DDO5  + (1|WATER), data = trophic_chemistry) %>%
+  summary()
+
+trophic_chemistry %>%
+  ungroup() %>%
+  select(DOC_update, sechi.depth, DDO5, TDO5) %>%
+  cor()
+
+
 
 # Secchi depth
 
+(trophic_chemistry$FAMILY) %>% unique()
+
 lmer.secchi = lmerTest::lmer(trophic_position_weighted ~ sechi.depth * FAMILY + (1|WATER), data = trophic_chemistry)
+
+lmer.secchi.summary = summary(lmer.secchi)$coefficients %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "effects") %>%
+  filter(effects %in% c("(Intercept)", "sechi.depth")) %>%
+  mutate(metric = 'Secchi') %>%
+  cbind(data.frame(summary(lmer.secchi)$varcor)%>% 
+          select(-var1, -var2))
 
 fam_secchi <- emtrends(lmer.secchi, 
                        specs = "FAMILY", 
@@ -303,9 +294,22 @@ fam_secchi <- emtrends(lmer.secchi,
   rename("trend" = "sechi.depth.trend" ) %>%
   mutate(metric = "Secchi")
 
-# Secchi depth
+# DOC depth
 
 lmer.DOC = lmerTest::lmer(trophic_position_weighted ~ DOC_update * FAMILY + (1|WATER), data = trophic_chemistry)
+lmer.DOC %>%
+lmer.DOC.summary = summary(lmer.DOC)$coefficients %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "effects") %>%
+  filter(effects %in% c("(Intercept)", "DOC_update")) %>%
+  mutate(metric = 'DOC') %>%
+  cbind(data.frame(summary(lmer.DOC)$varcor)%>% 
+          select(-var1, -var2))
+
+emmeans(lmer.DOC, 
+                       specs = "FAMILY", 
+                       var = "DOC_update")
 
 fam_DOC <- emtrends(lmer.DOC, 
                        specs = "FAMILY", 
@@ -325,9 +329,16 @@ fam_DOC <- emtrends(lmer.DOC,
 # DDO5
 lmer.DDO5 = lmerTest::lmer(trophic_position_weighted ~ depth.5mgL * FAMILY + (1|WATER), data = trophic_chemistry)
 
-fam_DDO5 <- emtrends(lmer.DDO5, 
-                       specs = "FAMILY", 
-                       var = "depth.5mgL") %>% ##
+lmer.ddo5.summary = summary(lmer.DDO5)$coefficients %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "effects") %>%
+  filter(effects %in% c("(Intercept)", "depth.5mgL")) %>%
+  mutate(metric = 'ddo5') %>%
+  cbind(data.frame(summary(lmer.DDO5)$varcor)%>% 
+          select(-var1, -var2))
+  
+fam_DDO5 <- emtrends(lmer.DDO5, specs = "FAMILY", var = "depth.5mgL") %>% ##
   summary() %>%
   as.matrix() %>%
   as.data.frame() %>%
@@ -341,10 +352,16 @@ fam_DDO5 <- emtrends(lmer.DDO5,
 
 ## TDO5
 lmer.TDO5 = lmerTest::lmer(trophic_position_weighted ~ temp.5mgL * FAMILY + (1|WATER), data = trophic_chemistry)
+lmer.tdo5.summary = summary(lmer.TDO5)$coefficients %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "effects") %>%
+  filter(effects %in% c("(Intercept)", "temp.5mgL")) %>%
+  mutate(metric = 'tdo5') %>%
+  cbind(data.frame(summary(lmer.TDO5)$varcor)%>% 
+          select(-var1, -var2))
 
-fam_TDO5 <- emtrends(lmer.TDO5, 
-                       specs = "FAMILY", 
-                       var = "temp.5mgL") %>% ##
+fam_TDO5 <- emtrends(lmer.TDO5, specs = "FAMILY", var = "temp.5mgL") %>% ##
   summary() %>%
   as.matrix() %>%
   as.data.frame() %>%
@@ -355,6 +372,10 @@ fam_TDO5 <- emtrends(lmer.TDO5,
   rename("trend" = "temp.5mgL.trend" ) %>%
   mutate(metric = "TDO5")
 
+## Summary Table of LMER results for the four models
+
+summary.table.TP = rbind(lmer.secchi.summary, lmer.DOC.summary, lmer.tdo5.summary, lmer.ddo5.summary)
+#write.csv(summary.table.TP, file = "Graphics/Tables/TrophicPosition_LMER.csv")
 
 
 
@@ -380,7 +401,8 @@ trophic_position_lmer.graph = rbind(fam_secchi, fam_DOC) %>%
   guides(color = guide_legend(nrow = 2), 
          shape = guide_legend(nrow = 2)) 
 trophic_position_lmer.graph
-## Simplified graph of emmeans results
+
+## Figure 4 - Simplified graph of emtrends results ---------------- 
 
 trophic_position_lmer.graph = rbind(fam_secchi, fam_DOC) %>% 
   rbind(fam_DDO5, fam_TDO5)  %>%
@@ -397,7 +419,6 @@ trophic_position_lmer.graph = rbind(fam_secchi, fam_DOC) %>%
               alpha = sig)) + 
   geom_tile() + 
   geom_text(col = "black", size = 5) +
-
   scale_fill_gradientn("Slope",colors = c(wes_palette("Zissou1", n = 5, type = "discrete")[1], 
                                     wes_palette("Zissou1", n = 5, type = "discrete")[3], 
                                     wes_palette("Zissou1", n = 5, type = "discrete")[5])) +
@@ -406,9 +427,27 @@ trophic_position_lmer.graph = rbind(fam_secchi, fam_DOC) %>%
   xlab("LMER Results") +
   scale_alpha_manual("Significance", labels = c(0,1), values = c(0,1)) +
   guides(alpha = "none")
+
 trophic_position_lmer.graph
-ggsave(plot = trophic_position_lmer.graph, file = "Graphics/Figures/Figure5B_TrophicPosition.pdf", width = 5, height = 4.5)
+#ggsave(plot = trophic_position_lmer.graph, file = "Graphics/Figures/Figure5B_TrophicPosition.pdf", width = 5, height = 4.5)
 
 
-library(gridExtra)
-grid.arrange(DDO5, TDO5, secchi, DOC)
+## Supplemental Table 4 -------------------------
+#Summary table of emtrends from all four LMER models
+
+tab_s4 = rbind(fam_DOC, fam_secchi, fam_DDO5, fam_TDO5) %>%
+  mutate(across(trend:df, as.numeric)) %>% 
+  select(metric, FAMILY, trend, SE, lower.CL, upper.CL, df) %>% 
+  mutate(across(where(is.numeric), round, digits = 3)) %>%
+  arrange(metric, FAMILY) %>%
+  rename(Family = FAMILY)
+#write.csv(tab_s4, file = "Graphics/Tables/Supplemental_Table_4.csv", row.names =  F)
+
+## Comparison between taxa using emmeans
+DOC_emmeans = emmeans(lmer.DOC, specs = "FAMILY", var = "DOC_update")
+pairs(DOC_emmeans) %>% 
+  as.data.frame() %>%
+  mutate(across(estimate:p.value, round, digits = 3)) %>%
+  mutate(p.value = as.numeric(p.value)) %>%
+#  filter(p.value < .05) %>%
+  mutate(p.value = case_when(p.value < .001 ~ "< .001", p.value >= .001 ~ as.character(p.value)))

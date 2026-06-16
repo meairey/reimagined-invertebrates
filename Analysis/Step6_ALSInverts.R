@@ -1,5 +1,13 @@
 ## ALS Invert Data
 
+## Setup ----------------------------
+`%nin%` = Negate(`%in%`)
+library(wesanderson)
+library(simmr)
+library(tidyverse)
+library(lme4)
+library(vegan)
+set.seed(123)
 ### Actual ALS invert data
 #### Filter out just method 1 
 
@@ -34,19 +42,21 @@ als.inv = read.csv("Data/ALS_INVERT_REC7.csv") %>% left_join(als_order) %>%
          FAMILY.full != "Curclionidae", ## Removing weevils (not typically aquatic)
          FAMILY.full != "Muscidae") ## Removing house flies (not typically aquatic)
 
-als_chem = read.csv("Data/CSVs/ALSC_chem_updated.csv")
-## Read in thermocline data
-thermocline = read.csv("Data/CSVs/thermocline_data_ALS.csv") %>%
-  select(PONDNO, curve_fitted_thermocline_depth, SECCHI)
+als_chem = read.csv("../solid-fishstick/Data/FigShare_LakeCharacteristics.csv")
 
 als.inv %>% group_by(PONDNO) %>%
  # reframe(unique(FAMILY.full)) %>%
   summarize(family_richness = length(unique(FAMILY.full))) %>%
-  left_join(als_chem, by = c("PONDNO" = "Pond_number")) %>%
-    ggplot(aes(x = family_richness, y = FIELDPH)) + 
+  left_join(als_chem) %>%
+  ggplot(aes(x = family_richness, y = DOC)) + 
   geom_point() + 
   geom_smooth()
 
+
+als.inv %>% group_by(PONDNO) %>%
+ # reframe(unique(FAMILY.full)) %>%
+  summarize(family_richness = length(unique(FAMILY.full))) %>%
+  ggplot(aes(x = family_richness)) + geom_histogram()
 
 als.inv %>% 
   filter(NMETHOD == 5) %>%
@@ -58,8 +68,6 @@ als.inv %>%
   summarize(count = n())
 
 pres.abs = als.inv %>% 
-  ## Testing out thermocline depth as a variable
-  filter(PONDNO %in% thermocline$PONDNO) %>%
   filter(NMETHOD == 1) %>%
   select(PONDNO, FAMILY.full) %>%
   filter(FAMILY.full != "Unspecified") %>%
@@ -69,22 +77,28 @@ pres.abs = als.inv %>%
   ungroup() %>%
   group_by(FAMILY.full) %>%
   mutate(total_occur = n()) %>%
-  filter(total_occur > 10) %>% 
+  filter(total_occur > 100) %>% 
   ungroup() %>%
   select(-total_occur) %>%
   group_by(PONDNO) %>%
   mutate(rich = length(unique(FAMILY.full))) %>%
-  filter(rich > 3) %>% ## Mean 7.25, sd = 3.1, low = 2, high = 19
+  filter(rich >= 3) %>% ## Mean 7.25, sd = 3.1, low = 2, high = 19
   select(-rich) %>%
   ungroup() %>%
   pivot_wider(names_from = FAMILY.full, values_from = pres, values_fill = 0) %>%
   filter(PONDNO %nin% c("020329", "040768")) %>%
+  filter(PONDNO %in% als_chem$PONDNO) %>%
   column_to_rownames(var = "PONDNO") 
 
+## 
+
+
+
+## Running the NMDS
 dim(pres.abs)
 stress = vector()
 for(i in 4:10){
-  i = 5
+  i = 3
   nmds = metaMDS(pres.abs, distance = "jaccard", k = i, trymax = 20) 
   stress[i] = nmds$stress
 }
@@ -93,7 +107,7 @@ ggplot(mapping = aes(x = 1:length(stress), y = stress)) +
   geom_point()
 
 
-
+nmds = metaMDS(pres.abs, distance = "jaccard", k = 4, trymax = 20) 
 site_scores = as.data.frame(scores(nmds, display = "sites"))
 
 
@@ -119,7 +133,7 @@ ggplot(elbow_plot, aes(x = k, y = WSS)) +
 
 ## Optimal clusters looks like k = 5
 
-k = 3  # Number of clusters you want to try
+k = 5  # Number of clusters you want to try
 kmeans_result = kmeans(site_scores, centers = k)
 
 # Add the cluster results to the site_scores data frame
@@ -154,18 +168,10 @@ sites %>%
   geom_point()
 
 
-env_data= read.csv("Data/CSVs/ALSC_chem_updated.csv") %>% 
-  filter(Pond_number %in% rownames(pres.abs)) %>%
-  select(Pond_number, SO4:SCONDUCT) %>%
-  select(-TAL)
-physical_data = read.csv("../solid-fishstick/Data/ALS_fish_updated.csv") %>%
-  select(Pond_number:Shoreline_Length_km) 
+chem = als_chem %>%
+  filter(PONDNO %in% rownames(pres.abs)) 
 
-lake_data = left_join(env_data, physical_data) %>% 
-  left_join(thermocline, by = c("Pond_number" = "PONDNO")) %>% 
-  filter(Pond_number %in% rownames(pres.abs))
-
-env_fit = envfit(nmds, lake_data, na.rm =T)
+env_fit = envfit(nmds, chem, na.rm =T)
 env_fit.vectors = cbind(env_fit$vectors$arrows %>% as.data.frame(), env_fit$vectors$pvals) %>%
   mutate( r = round(env_fit$vectors$r, digits = 2)) %>%
   rename(pvals = `env_fit$vectors$pvals`) %>%

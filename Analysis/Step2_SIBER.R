@@ -1,7 +1,7 @@
+set.seed(1234)
 # Isotopic Niches
 ## Script setup -------------
 `%nin%` = Negate("%in%")
-set.seed(123)
 
 ## Libraries
 library(SIBER)
@@ -75,9 +75,13 @@ community.legend = data %>% select(community, community.name) %>%
 # save(community.legend, file = "Data/RData/community.legend.RData")
 
 #### Cluster and chemistry data -- cluster from `Step1_NMDS.R`
-cluster_chem = read.csv(file = "Data/CSVs/richness_update.csv") %>%
+load("Data/RData/cluster.mat.RData")
+cluster_chem = read.csv(file = "Data/CSVs/chemistry_seasonal.csv") %>%
+  unite("community.name", c(WATER, season), sep = ".") %>%
   #unite("ID", WATER, season, sep = ".") %>%
-  left_join(community.legend, by = c("ID" = "community.name"))
+  left_join(community.legend) %>%
+  left_join(cluster.mat %>%
+              unite(ID, c("WATER", "season"), sep = "."))
 
 
 
@@ -180,17 +184,23 @@ lmer.area.data = ellipse.area %>%
   group_by(community, group, group.name) %>%
   summarize(mean.area = mean(area)) %>%
   left_join(community.legend) %>%
-  left_join(cluster_chem, by = "community.name") %>%
-  separate(community.name, into = c("WATER", "season")) %>%
+  left_join(cluster_chem, by = c("community", "community.name")) %>%
+  separate(ID, into = c("WATER", "season")) %>%
   ungroup()  %>%
-  select(-ID,-temp_do, -DOC_update_text, -SurficialGeology, -Lake.Type, -min_do) %>% 
   group_by(group.name) %>%
-  mutate(n = n()) %>%
-  filter(n > 2) %>%
+  mutate(n =length(unique(WATER))) %>%
+  filter(n > 2) %>% ## filter for families that occur in at least 2 sampling events
   select(-n) %>% 
-  filter(!(community.x == 14 & group.name == "corduliidae")) ## Point removed using Cook's distance below. Check this if rerunning
+  filter(!(community == 14 & group.name == "corduliidae")) %>% ## Point removed using Cook's distance below. Check this if rerunning
+  ungroup() %>%
+  select(Pond_num,Lake,community, community.name, WATER, season, group.name, cluster, everything()) %>%
+   mutate(across(
+    .cols = mean.area:Volume,
+    .fns = ~ as.numeric(scale(.x)),
+    .names = "{.col}_scaled"
+  ))
  
-vars = colnames(lmer.area.data)[10:19] ## Variables to run the LMER through
+vars = colnames(lmer.area.data)[22:31] ## Variables to run the LMER through
 
 
 ### LMER loop
@@ -198,21 +208,29 @@ for(i in 1:length(vars)){
   form = as.formula(paste0("mean.area ~ ", vars[i], " + (1|group.name)"))
   lmer.run = lmerTest::lmer(form, data = lmer.area.data) %>% ## DOC is the only variable that is significant
   summary()
-  if(lmer.run$coefficients[2,5] < .05){
+  if(lmer.run$coefficients[2,5] < .1){
     print(vars[i])
     print(lmer.run$coefficients[2,])
   }
 }
 
+## Testing if other variables matter
+#### No, adding in that thermocline variable does not improve AIC
+lmerTest::lmer(mean.area ~ DOC_update_scaled + bottom_scaled +  (1|group.name), data = lmer.area.data[-31,]) %>% summary()
 
 
 
 ### Running for the significant DOC
-lmer.area.DOC = lmerTest::lmer(mean.area ~ DOC_update + (1|group.name), data = lmer.area.data[-31,])
+lmer.area.DOC.scaled = lmerTest::lmer(mean.area ~ DOC_update_scaled + (1|group.name), data = lmer.area.data[-31,])  ## Scaled for stats
+lmer.area.DOC.raw = lmerTest::lmer(mean.area ~ DOC_update + (1|group.name), data = lmer.area.data[-31,])  ## Scaled for stats
+
+lmer.area.DOC.scaled %>% AIC()
+
 
 ### Summary table (done manually not in loop above for only significant variables) 
-doc.lmer.sum = lmer.area.DOC %>% summary()
+doc.lmer.sum = lmer.area.DOC.scaled %>% summary()
 DOC_lmer.summary.table = doc.lmer.sum$coefficients %>% as.data.frame() %>%
+  rownames_to_column(var = "predictor") %>%
   cbind(data.frame( doc.lmer.sum$varcor) %>% 
   select(-var1, -var2))
 
@@ -226,7 +244,7 @@ newdat.DOC.area = data.frame( ## Format a new set up data
                    max(lmer.area.data$DOC_update, na.rm = TRUE),
                    length.out = 100),group.name = NA)
 
-pred.DOC.area = predict(lmer.area.DOC,## Format the predicted data from newdat.DOC.area
+pred.DOC.area = predict(lmer.area.DOC.raw,## Format the predicted data from newdat.DOC.area
                         newdata = newdat.DOC.area,
                         re.form = NA,se.fit = TRUE)
 
@@ -259,7 +277,8 @@ DOC_Nichesize = ggplot() +
         legend.key.height = unit(0.04, "cm")) +
   guides(color = guide_legend(nrow = 4, byrow = TRUE))
 DOC_Nichesize
-ggsave(DOC_Nichesize, file = "Graphics/Figures/Figure_3B.pdf", width = 4, height= 5)
+
+#ggsave(DOC_Nichesize, file = "Graphics/Figures/Figure_3B.pdf", width = 4, height= 5)
 
 
 #### Removing one point from the area LMER because it's an outlier
@@ -284,7 +303,7 @@ ellipse.area %>%
   group_by(common, Water, post_n) %>%
   pivot_wider(names_from = Season, values_from = area) %>%
   na.omit() %>%
-  mutate(diff = spring - fall) %>%
+  mutate(diff = fall - spring) %>%
   ungroup() %>% 
   group_by(common, Water) %>%
   summarize(low = quantile(diff, .025), 
@@ -298,7 +317,7 @@ ellipse.area %>%
   theme_minimal(base_size = 12) +
   geom_vline(xintercept = 0, lty = "dashed") + 
   xlab("Seasonal SEAc Difference") +
-  scale_color_manual("Significance", values = c("black", "#6B8E23"), labels = c("Insignificant", "Significant")) -> FigureS4
+  scale_color_manual("Significance", values = c("gray", "black"), labels = c("Insignificant", "Significant")) -> FigureS4
 ggsave(file = "Graphics/Figures/Supp_Figure_4.pdf", plot = FigureS4, width = 7, height = 5, units = "in")
 
 
